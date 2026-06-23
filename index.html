@@ -243,6 +243,40 @@ select.inp,input.inp{padding:8px 12px;border:1px solid var(--line);border-radius
 .lockerr{color:var(--danger);font-size:.84rem;min-height:18px;margin:8px 0 0;font-weight:500}
 .lockhint{font-size:.76rem;color:var(--muted);margin-top:18px;line-height:1.5;border-top:1px solid var(--line-2);padding-top:14px}
 
+/* Upload-Feld */
+.upload{display:flex;align-items:center;gap:10px;justify-content:center;padding:14px;border:1.5px dashed var(--line);border-radius:11px;cursor:pointer;color:var(--muted);font-size:.9rem;background:var(--surface-2);transition:all .15s}
+.upload:hover{border-color:var(--accent);color:var(--accent);background:var(--accent-w)}
+.upload svg{width:20px;height:20px}
+.sigbox{background:#fff;border:1px solid var(--line);border-radius:10px;padding:12px 14px;display:inline-block}
+.sigbox img{max-height:80px;max-width:260px;display:block}
+.sigph{color:var(--muted);font-size:.85rem;padding:6px 0}
+
+/* Import-Vorschau */
+.imptbl-head{display:grid;grid-template-columns:24px 1fr 132px 116px;gap:8px;padding:14px 2px 6px;font-size:.7rem;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.03em}
+.imptbl{max-height:320px;overflow:auto;display:flex;flex-direction:column;gap:6px;border:1px solid var(--line-2);border-radius:11px;padding:9px;background:var(--surface-2)}
+.improw{display:grid;grid-template-columns:24px 1fr 132px 116px;gap:8px;align-items:center}
+.improw input[type=checkbox]{width:18px;height:18px;accent-color:var(--accent);cursor:pointer}
+.improw input[type=text],.improw input[type=date]{padding:7px 9px;font-size:.85rem;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--ink);font-family:var(--sans)}
+.improw input[type=text]:focus,.improw input[type=date]:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-w)}
+@media(max-width:560px){ .imptbl-head{display:none} .improw{grid-template-columns:24px 1fr;gap:6px 8px} .improw .imp_due,.improw .imp_grp{grid-column:2} }
+
+/* Kündigungs-Brief (Vorschau) */
+.ksheet{background:#fff;border:1px solid var(--line);border-radius:8px;padding:30px 34px;font-family:var(--serif,Georgia,'Times New Roman',serif);color:#1a1a1a;font-size:13px;line-height:1.6;box-shadow:var(--shadow)}
+.ks-sender{font-size:10.5px;color:#666;margin-bottom:26px}
+.ks-to{margin-bottom:26px;white-space:pre-line}
+.ks-date{text-align:right;margin-bottom:24px}
+.ks-subj{font-weight:700;margin-bottom:16px}
+.ks-p{margin:0 0 11px}
+.ks-sig{height:48px;margin:8px 0 2px;display:block}
+.ks-name{font-size:13px}
+
+@media print{
+  body * { visibility:hidden !important; }
+  #k_print, #k_print * { visibility:visible !important; }
+  #k_print{ position:fixed; left:0; top:0; width:100%; margin:0; padding:0; }
+  #k_print .ksheet{ box-shadow:none; border:0; border-radius:0; padding:12mm 16mm; font-size:12pt; }
+}
+
 .x{width:34px;height:34px;border-radius:9px;border:1px solid var(--line);background:var(--surface);display:grid;place-items:center;color:var(--muted)}
 .x:hover{background:var(--surface-3);color:var(--ink)}
 .x svg{width:17px;height:17px}
@@ -394,7 +428,8 @@ select.inp,input.inp{padding:8px 12px;border:1px solid var(--line);border-radius
 const STORE_KEY='hauptbuch_v1';
 const SCHEMA=3;
 const DEFAULT_DB={ schema:SCHEMA, accounts:[], investments:[], insurances:[], contracts:[], expenses:[], liabilities:[], tasks:[], history:[],
-  settings:{ baseCurrency:'EUR', eurChf:0.93, tdKey:'', aiKey:'', aiModel:'claude-sonnet-4-6', lastSync:null } };
+  settings:{ baseCurrency:'EUR', eurChf:0.93, proxyUrl:'', tdKey:'', aiKey:'', aiModel:'claude-sonnet-4-6', lastSync:null,
+    senderName:'', senderStreet:'', senderCity:'', signature:'', sigW:0, sigH:0 } };
 
 let db=structuredClone(DEFAULT_DB);
 let state={ view:'dashboard', expMonth:ymNow(), insFilter:'all', insGroup:'all', conFilter:'all', taskFilter:'open', histRange:'1y' };
@@ -405,6 +440,9 @@ function migrate(d){
   if(!d.settings.baseCurrency) d.settings.baseCurrency='EUR';
   if(d.settings.eurChf==null||!(d.settings.eurChf>0)) d.settings.eurChf=0.93;
   if(d.settings.tdKey==null) d.settings.tdKey='';
+  if(d.settings.proxyUrl==null) d.settings.proxyUrl='';
+  ['senderName','senderStreet','senderCity','signature'].forEach(k=>{ if(d.settings[k]==null) d.settings[k]=''; });
+  if(d.settings.sigW==null) d.settings.sigW=0; if(d.settings.sigH==null) d.settings.sigH=0;
   if(d.settings.aiKey==null) d.settings.aiKey='';
   if(!d.settings.aiModel) d.settings.aiModel='claude-sonnet-4-6';
   if(!Array.isArray(d.liabilities)) d.liabilities=[];
@@ -507,67 +545,77 @@ function removePassword(){
 }
 
 /* ===================== MARKTDATEN / LIVE-KURSE ===================== */
-/* Anbieter: Twelve Data (kostenloser API-Key, CORS-fähig, ISIN-Suche + intl. Börsen).
-   Key wird nur lokal gespeichert (Einstellungen) und ausschließlich an Twelve Data gesendet. */
+/* Kurse: Yahoo Finance über deinen eigenen Cloudflare-Worker (CORS-Proxy).
+   Kein API-Key nötig, volle Abdeckung europäischer Börsen (Xetra .DE, SIX .SW, LSE .L, Mailand .MI …).
+   Die Worker-URL wird nur lokal gespeichert; Abfragen laufen über deinen Proxy zu Yahoo. */
 const PRICEABLE=['etf','aktie','fonds','anleihe','krypto'];
 function isISIN(s){ return /^[A-Z]{2}[A-Z0-9]{9}[0-9]$/.test(String(s||'').trim().toUpperCase()); }
-function hasPriceKey(){ return !!(db.settings.tdKey && db.settings.tdKey.trim()); }
+function proxyBase(){ return (db.settings.proxyUrl||'').trim().replace(/\/+$/,''); }
+function hasPriceProxy(){ return !!proxyBase(); }
 function sleep(ms){ return new Promise(r=>setTimeout(r,ms)); }
 function fmtSyncTime(iso){ if(!iso) return ''; const d=new Date(iso); if(isNaN(d)) return ''; const sameDay=d.toDateString()===new Date().toDateString(); return sameDay?('heute '+d.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'})):d.toLocaleString('de-DE',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}); }
 
-async function tdGet(endpoint, params){
-  const url=new URL('https://api.twelvedata.com/'+endpoint);
+async function yGet(endpoint, params){
+  const base=proxyBase(); if(!base) throw {code:'NOPROXY'};
+  const url=new URL(base+'/'+endpoint);
   Object.entries(params).forEach(([k,v])=>{ if(v!=null&&v!=='') url.searchParams.set(k,v); });
-  url.searchParams.set('apikey', db.settings.tdKey.trim());
-  const res=await fetch(url.toString());
+  let res; try{ res=await fetch(url.toString()); }catch(e){ throw {code:'PROXY'}; }
+  if(res.status>=500) throw {code:'PROXY'};
   let j; try{ j=await res.json(); }catch(e){ throw {code:'PARSE'}; }
-  if(j && j.status==='error') throw {code:j.code||'API', msg:j.message||''};
   return j;
 }
+/* bevorzugte Börsen-Endung je Positionswährung */
+function exchSuffixPref(cur){ return cur==='CHF'?['.SW','.DE','.F']: cur==='USD'?['','.DE']: ['.DE','.F','.MI','.AS','.PA','.L','.SW']; }
 async function resolveSymbol(inst){
-  if(inst.symbol && inst.symbol.trim()) return { symbol:inst.symbol.trim(), mic:(inst.mic||'').trim() };
+  if(inst.symbol && inst.symbol.trim()) return { symbol:inst.symbol.trim() };
   const id=(inst.isin||'').trim();
   if(!id) throw {code:'NOID'};
-  if(isISIN(id)){
-    const r=await tdGet('symbol_search',{symbol:id, outputsize:30});
-    const arr=(r&&r.data)||[];
-    if(!arr.length) throw {code:'NOTFOUND'};
-    const m=arr.find(x=>x.currency===inst.currency) || arr.find(x=>x.currency==='EUR'||x.currency==='CHF') || arr[0];
-    return { symbol:m.symbol, mic:m.mic_code||'' };
-  }
-  return { symbol:id, mic:(inst.mic||'').trim() }; // wahrscheinlich bereits ein Ticker
+  if(!isISIN(id)) return { symbol:id }; // wahrscheinlich bereits ein Ticker
+  const r=await yGet('search',{q:id});
+  const arr=((r&&r.quotes)||[]).filter(q=>q.symbol && q.isYahooFinance!==false && ['ETF','EQUITY','MUTUALFUND','INDEX'].includes(String(q.quoteType||'').toUpperCase()));
+  if(!arr.length) throw {code:'NOTFOUND'};
+  let pick=null;
+  for(const suf of exchSuffixPref(inst.currency)){ pick=arr.find(q=> suf? q.symbol.toUpperCase().endsWith(suf) : !/\.[A-Z]+$/.test(q.symbol)); if(pick) break; }
+  if(!pick) pick=arr[0];
+  return { symbol:pick.symbol, name:pick.shortname||pick.longname };
 }
-async function fetchFx(from,to,cache){
+function chartMeta(j){ const res=j&&j.chart&&j.chart.result&&j.chart.result[0]; return res&&res.meta ? res.meta : null; }
+async function fetchFxY(from,to,cache){
   if(from===to) return 1;
-  if((from==='EUR'&&to==='CHF')||(from==='CHF'&&to==='EUR')) return convert(1,from,to);
+  if((from==='EUR'||from==='CHF')&&(to==='EUR'||to==='CHF')) return convert(1,from,to); // manueller EUR/CHF-Kurs
   const key=from+to; if(cache && cache[key]!=null) return cache[key];
-  const q=await tdGet('price',{symbol:from+'/'+to});
-  const r=parseFloat(q&&q.price);
-  if(!isFinite(r)) throw {code:'FXFAIL'};
+  const m=chartMeta(await yGet('quote',{symbol:from+to+'=X'}));
+  const r=m&&parseFloat(m.regularMarketPrice);
+  if(!isFinite(r)||!r) throw {code:'FXFAIL'};
   if(cache) cache[key]=r; return r;
 }
 async function fetchQuote(inst, fxCache){
-  const {symbol,mic}=await resolveSymbol(inst);
-  const q=await tdGet('quote',{symbol, mic_code:mic||undefined});
-  const price=parseFloat(q.close!=null?q.close:q.price);
+  const {symbol,name}=await resolveSymbol(inst);
+  const j=await yGet('quote',{symbol});
+  const m=chartMeta(j);
+  if(!m){ if(j&&j.chart&&j.chart.error) throw {code:'NOTFOUND'}; throw {code:'NOPRICE'}; }
+  let price=parseFloat(m.regularMarketPrice);
+  let apiCur=m.currency||inst.currency;
+  let prev=parseFloat(m.chartPreviousClose!=null?m.chartPreviousClose:m.previousClose);
+  if(apiCur==='GBp'||apiCur==='GBX'){ price/=100; if(isFinite(prev)) prev/=100; apiCur='GBP'; }
   if(!isFinite(price)) throw {code:'NOPRICE'};
-  const apiCur=q.currency||inst.currency;
+  const changePct = isFinite(prev)&&prev>0 ? (price-prev)/prev*100 : NaN;
   let perShare=price;
-  if(apiCur!==inst.currency){ const fx=await fetchFx(apiCur,inst.currency,fxCache); perShare=price*fx; }
-  return { price, perShare, apiCur, changePct:parseFloat(q.percent_change), symbol, mic, name:q.name };
+  if(apiCur!==inst.currency){ const fx=await fetchFxY(apiCur,inst.currency,fxCache); perShare=price*fx; }
+  return { price, perShare, apiCur, changePct, symbol, name, ts:m.regularMarketTime };
 }
 function priceErrText(e){
   const c=e&&e.code;
+  if(c==='NOPROXY'||c==='PROXY') return 'Proxy nicht erreichbar – Worker-URL prüfen';
   if(c==='NOID') return 'keine ISIN/Symbol';
   if(c==='NOTFOUND') return 'ISIN nicht gefunden – Symbol manuell setzen';
   if(c==='NOPRICE') return 'kein Kurs verfügbar';
   if(c==='FXFAIL') return 'Währungsumrechnung fehlgeschlagen';
-  if(String(c)==='429'||String(c)==='400'&&/credit/i.test(e.msg||'')) return 'API-Limit erreicht – später erneut';
   if(c==='PARSE') return 'Antwort unlesbar';
   return (e&&e.msg)||'Abruf fehlgeschlagen';
 }
 async function updateAllPrices(){
-  if(!hasPriceKey()){ toast('Bitte zuerst einen API-Key hinterlegen (Einstellungen)','warn'); openSettings(); return; }
+  if(!hasPriceProxy()){ toast('Bitte zuerst die Kurs-Proxy-URL hinterlegen (Einstellungen)','warn'); openSettings(); return; }
   const list=db.investments.filter(i=>PRICEABLE.includes(i.type) && i.autoUpdate!==false && num(i.shares)>0);
   if(!list.length){ toast('Keine aktualisierbaren Positionen (Aktie/ETF mit Stückzahl)','warn'); return; }
   const btn=document.getElementById('btnSync'); if(btn) btn.disabled=true;
@@ -582,10 +630,9 @@ async function updateAllPrices(){
       inst.lastChangePct=isFinite(q.changePct)?q.changePct:null;
       inst.lastPriceAt=new Date().toISOString();
       if(!inst.symbol && q.symbol) inst.symbol=q.symbol;
-      if(!inst.mic && q.mic) inst.mic=q.mic;
       inst.priceErr=null; okN++;
     }catch(e){ errN++; inst.priceErr=priceErrText(e); if(!firstErr) firstErr=(inst.name||inst.isin||'')+': '+inst.priceErr; }
-    if(k<list.length-1) await sleep(900); // Rate-Limit (Gratis: 8/min) schonen
+    if(k<list.length-1) await sleep(250);
   }
   db.settings.lastSync=new Date().toISOString();
   if(okN>0){ try{ takeSnapshot(); }catch(e){} }
@@ -746,6 +793,7 @@ function flagOf(c){ return (COUNTRY[c]||COUNTRY.de).flag; }
 
 /* ---------- Generic formatting ---------- */
 function fmtDate(d){ if(!d) return '—'; const dt=new Date(d+'T00:00:00'); if(isNaN(dt)) return '—'; return dt.toLocaleDateString('de-DE',{day:'2-digit',month:'short',year:'numeric'}); }
+function fmtDateLong(d){ if(!d) return ''; const dt=new Date(d+'T00:00:00'); if(isNaN(dt)) return ''; return dt.toLocaleDateString('de-DE',{day:'numeric',month:'long',year:'numeric'}); }
 function ymNow(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'); }
 function todayISO(){ const d=new Date(); return d.toISOString().slice(0,10); }
 function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
@@ -1185,6 +1233,7 @@ function insCard(ins){
       ${ins.conditions?`<div class="icard-note">${esc(ins.conditions)}</div>`:''}
     </div>
     <div class="icard-foot">
+      <button class="btn ghost sm" onclick="openCancellation('ins','${ins.id}')" title="Kündigungsschreiben erstellen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2.5h8l4 4V21a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1z"/><path d="M13.5 2.5V7H18"/><path d="M9.5 14.5l5 4M14.5 14.5l-5 4"/></svg>Kündigung</button>
       <button class="btn ghost sm" onclick="openInsurance('${ins.id}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L18.5 9.5a2.1 2.1 0 0 0-3-3L5 17v3z"/><path d="M13.5 6.5l3 3"/></svg>Bearbeiten</button>
       <button class="icon-btn del" onclick="delInsurance('${ins.id}')" aria-label="Löschen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13"/></svg></button>
     </div>
@@ -1238,6 +1287,7 @@ function conCard(c){
     </div>
     <div class="icard-foot">
       <button class="btn ghost sm" onclick="bumpReview('${c.id}')" title="Prüftermin um 1 Jahr verschieben"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 4v4h-4"/></svg>Geprüft</button>
+      <button class="btn ghost sm" onclick="openCancellation('con','${c.id}')" title="Kündigungsschreiben erstellen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2.5h8l4 4V21a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1z"/><path d="M13.5 2.5V7H18"/><path d="M9.5 14.5l5 4M14.5 14.5l-5 4"/></svg>Kündigung</button>
       <button class="btn ghost sm" onclick="openContract('${c.id}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L18.5 9.5a2.1 2.1 0 0 0-3-3L5 17v3z"/><path d="M13.5 6.5l3 3"/></svg>Bearbeiten</button>
       <button class="icon-btn del" onclick="delContract('${c.id}')" aria-label="Löschen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13"/></svg></button>
     </div>
@@ -1420,6 +1470,7 @@ function viewAufgaben(){
   <div class="page-head">
     <div><h1>Aufgaben &amp; Checklisten</h1><div class="sub">${openN} offen${overdueN?` · <span style="color:var(--danger)">${overdueN} überfällig</span>`:''} · ${doneN} erledigt</div></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn" onclick="openImport()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14v5a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-5M12 3v11m0 0l-4-4m4 4l4-4"/></svg>Importieren</button>
       <button class="btn" onclick="addReloTasks()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9.5L12 4l9 5.5M5 8.5V20h14V8.5"/></svg>Umzug-Vorlage</button>
       <button class="btn primary" onclick="openTask()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>Aufgabe</button>
     </div>
@@ -1464,6 +1515,161 @@ function addReloTasks(){
     RELO_TASKS.forEach(([title,offset,note])=>{ const d=new Date(); d.setDate(d.getDate()+offset); db.tasks.push({id:uid(),title,group:'Umzug DE→CH',due:d.toISOString().slice(0,10),notes:note,done:false}); });
     save(); state.taskFilter='open'; render(); toast('Umzug-Checkliste eingefügt');
   });
+}
+
+/* ===================== IMPORT: Aufgaben/Fristen aus Datei oder Text ===================== */
+const DE_MONTHS={januar:1,jan:1,februar:2,feb:2,'märz':3,maerz:3,'mär':3,april:4,apr:4,mai:5,juni:6,jun:6,juli:7,jul:7,august:8,aug:8,september:9,sep:9,sept:9,oktober:10,okt:10,november:11,nov:11,dezember:12,dez:12};
+const DE_SEASON={'frühjahr':3,fruehjahr:3,'frühling':3,fruehling:3,sommer:6,herbst:9,winter:12};
+function lastDayOfMonth(y,m){ return new Date(y,m,0).getDate(); }
+function dateFromText(s){
+  if(!s) return '';
+  const t=String(s).toLowerCase().replace(/\u00a0/g,' ');
+  let m=t.match(/(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{2,4})/);
+  if(m){ let [,d,mo,y]=m; if(y.length===2) y='20'+y; const iso=`${y}-${String(mo).padStart(2,'0')}-${String(d).padStart(2,'0')}`; return isNaN(new Date(iso))?'':iso; }
+  m=t.match(/\b(\d{1,2})[.\/](\d{4})\b/); if(m){ const mo=+m[1],y=+m[2]; if(mo>=1&&mo<=12) return `${y}-${String(mo).padStart(2,'0')}-01`; }
+  const year=(t.match(/\b(20\d{2})\b/)||[])[1]; if(!year) return '';
+  const y=+year;
+  if(/jahresende|jahresabschluss|ende des jahres/.test(t)) return `${y}-12-31`;
+  if(/jahresanfang|jahresbeginn/.test(t)) return `${y}-01-01`;
+  let mo=0; for(const name in DE_MONTHS){ if(new RegExp('\\b'+name+'\\b').test(t)){ mo=DE_MONTHS[name]; break; } }
+  if(!mo){ for(const name in DE_SEASON){ if(t.includes(name)){ mo=DE_SEASON[name]; break; } } }
+  if(mo){ let day=1; if(/\bende\b/.test(t)) day=lastDayOfMonth(y,mo); else if(/\bmitte\b/.test(t)) day=15; return `${y}-${String(mo).padStart(2,'0')}-${String(day).padStart(2,'0')}`; }
+  return '';
+}
+function cleanLine(s){ return String(s||'').replace(/\*\*/g,'').replace(/^[\s•\-\u2013\u2022*▪◦·]+/,'').replace(/\s+/g,' ').trim(); }
+function dateExplicit(s){
+  const t=String(s||'').replace(/\u00a0/g,' ');
+  let m=t.match(/(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{2,4})/);
+  if(m){ let [,d,mo,y]=m; if(y.length===2) y='20'+y; const iso=`${y}-${String(mo).padStart(2,'0')}-${String(d).padStart(2,'0')}`; return isNaN(new Date(iso))?'':iso; }
+  return '';
+}
+function startsWithDateToken(s){
+  const t=cleanLine(s).toLowerCase();
+  if(/^20\d{2}\b/.test(t)) return true;
+  if(/^(jahresende|jahresanfang|jahresbeginn|ende|mitte|anfang)\b/.test(t)) return true;
+  for(const n in DE_MONTHS){ if(new RegExp('^'+n+'\\b').test(t)) return true; }
+  for(const n in DE_SEASON){ if(t.startsWith(n)) return true; }
+  return false;
+}
+function isHeadingLine(raw){
+  const s=cleanLine(raw); if(!s) return false;
+  if(/^[\s]*[•\-\u2022*▪]/.test(raw)) return false;
+  if(s.length>90) return false;
+  if(s.endsWith(':')) return true;
+  if(/^\d+(\.\d+)*\s/.test(s)) return true;
+  if(dateFromText(s) && startsWithDateToken(s)) return true;
+  return false;
+}
+function parseTasksLocal(text, dialogGroup){
+  const lines=String(text||'').split(/\r?\n/).map(l=>l.replace(/\u00a0/g,' ')).filter(l=>l.trim().length);
+  const isBullet=l=>/^[\s]*[•\-\u2013\u2022*▪◦]/.test(l);
+  const anyBullet=lines.some(isBullet);
+  const out=[]; let catGroup='', dateDue='';
+  for(let i=0;i<lines.length;i++){
+    const line=lines[i];
+    if(isBullet(line)){ const title=cleanLine(line); if(title.length>=3) out.push({title, due:dateExplicit(title)||dateDue, group:(catGroup||dialogGroup||'').trim()}); continue; }
+    const clean=cleanLine(line);
+    const nextIsBullet = i+1<lines.length && isBullet(lines[i+1]);
+    const headish = isHeadingLine(line) || (clean.length<=70 && nextIsBullet);
+    if(headish){ const d=dateFromText(clean); if(d) dateDue=d; else { catGroup=clean.replace(/^\d+(\.\d+)*\s*/,'').replace(/[:–-]\s*$/,'').trim(); dateDue=''; } continue; }
+    if(!anyBullet && clean.length>=3) out.push({title:clean, due:dateExplicit(clean)||dateDue, group:(catGroup||dialogGroup||'').trim()});
+  }
+  return out;
+}
+function parseTaskJSON(txt){
+  if(!txt) throw {msg:'Leere KI-Antwort'};
+  let s=txt.replace(/```json/gi,'').replace(/```/g,'').trim();
+  const a=s.indexOf('['), b=s.lastIndexOf(']'); if(a<0||b<0) throw {msg:'Keine Aufgaben erkannt'};
+  let arr; try{ arr=JSON.parse(s.slice(a,b+1)); }catch(e){ throw {msg:'KI-Antwort nicht lesbar'}; }
+  if(!Array.isArray(arr)) throw {msg:'Unerwartetes Format'};
+  return arr.map(o=>({ title:cleanLine((o&&o.title)||''), due:normDate(o&&o.due)||'', group:((o&&o.group)||'').toString().trim(), notes:((o&&o.notes)||'').toString().trim() })).filter(t=>t.title);
+}
+async function aiParseTasks(text, dialogGroup){
+  const prompt='Extrahiere ALLE Aufgaben/To-dos mit etwaigen Fristen aus dem folgenden deutschen Text (Checkliste/Plan). Ignoriere reinen Fließtext und Tabellen ohne Aufgabencharakter. Leite Fristen aus Überschriften ab: „Juli 2026"→2026-07-01, „August / September 2026"→2026-08-01, „Jahresende 2026"→2026-12-31, „Ende März 2027"→2027-03-31. Ordne als group eine thematische (nicht zeitliche) Überschrift zu, sonst '+(dialogGroup?('"'+dialogGroup+'"'):'null')+'. Antworte AUSSCHLIESSLICH mit einem JSON-Array, ohne Markdown: [{"title":string,"due":"YYYY-MM-DD"|null,"group":string|null,"notes":string|null}]\n\nTEXT:\n'+String(text).slice(0,24000);
+  const body={model:db.settings.aiModel||'claude-sonnet-4-6',max_tokens:3000,messages:[{role:'user',content:[{type:'text',text:prompt}]}]};
+  let res; try{ res=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'content-type':'application/json','x-api-key':db.settings.aiKey.trim(),'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},body:JSON.stringify(body)}); }
+  catch(e){ throw {msg:'Verbindung zur KI fehlgeschlagen'}; }
+  let j; try{ j=await res.json(); }catch(e){ throw {msg:'KI-Antwort unlesbar'}; }
+  if(!res.ok||j.type==='error'||j.error){ throw {msg:'KI-Fehler: '+((j.error&&j.error.message)||('HTTP '+res.status))}; }
+  return parseTaskJSON((j.content||[]).filter(c=>c.type==='text').map(c=>c.text).join('\n'));
+}
+async function ensureMammoth(){ if(window.mammoth) return window.mammoth; await loadScript('https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js'); if(!window.mammoth) throw {msg:'DOCX-Bibliothek nicht verfügbar (Internet nötig)'}; return window.mammoth; }
+async function extractFileText(file){
+  const name=(file.name||'').toLowerCase();
+  if(/\.docx$/.test(name)||/officedocument\.wordprocessing/.test(file.type||'')){
+    const mm=await ensureMammoth();
+    const r=await mm.convertToHtml({arrayBuffer:await file.arrayBuffer()});
+    const div=document.createElement('div'); div.innerHTML=r.value||''; const lines=[];
+    div.querySelectorAll('h1,h2,h3,h4,h5,h6,li,p').forEach(el=>{ const tx=(el.textContent||'').trim(); if(!tx) return; lines.push(el.tagName==='LI'?('- '+tx):tx); });
+    return lines.join('\n');
+  }
+  if(/\.pdf$/.test(name)||/pdf$/.test(file.type||'')) return await pdfExtractText(file);
+  return await file.text();
+}
+let _importParsed=[];
+function importGroupDefault(fileName){ return String(fileName||'').replace(/\.[a-z0-9]+$/i,'').replace(/[_]+/g,' ').replace(/\s+/g,' ').trim().slice(0,40); }
+function openImport(){
+  _importParsed=[]; const hasAI=!!(db.settings.aiKey&&db.settings.aiKey.trim());
+  openModal(`<div class="modal-head"><h2>Aufgaben / Fristen importieren</h2><button class="x" onclick="closeModal()" aria-label="Schließen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+  <div class="modal-body">
+    <div class="icard-note">Lade eine Datei (Word <span class="mono">.docx</span>, PDF, <span class="mono">.txt</span>, <span class="mono">.md</span>, <span class="mono">.csv</span>) hoch <strong>oder</strong> füge Text ein. Die App erkennt Stichpunkte und leitet Fristen aus Überschriften wie „Juli 2026" oder „Jahresende 2026" ab. In der Vorschau kannst du alles prüfen, anpassen und auswählen, bevor es übernommen wird.</div>
+    <label class="upload"><input type="file" id="imp_file" accept=".docx,.pdf,.txt,.md,.csv,.tsv,text/plain" style="display:none" onchange="impFilePicked(this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4m0 0l-4 4m4-4l4 4M4 17v2a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-2"/></svg><span id="imp_fname">Datei wählen (.docx / .pdf / .txt …)</span></label>
+    <div class="t-sub" style="text-align:center;margin:8px 0">– oder –</div>
+    ${field('imp_text','Text einfügen','',{type:'textarea',ph:'Liste hier einfügen … (Überschriften mit Datum werden als Frist erkannt)'})}
+    <div class="fg-row">
+      ${field('imp_group','Standard-Gruppe','',{ph:'z. B. Investitionsplan Schweiz',hint:'für Aufgaben ohne thematische Überschrift'})}
+      ${hasAI?field('imp_ai','Analyse','1',{type:'select',options:[['1','KI-Analyse (genauer)'],['0','einfache Analyse']]}):''}
+    </div>
+    <div style="display:flex;justify-content:flex-end"><button type="button" class="btn primary" id="imp_run" onclick="runImportAnalyze()">Analysieren</button></div>
+    <div id="imp_preview"></div>
+  </div>`);
+}
+function impFilePicked(input){ const f=input.files&&input.files[0]; const el=document.getElementById('imp_fname'); if(el) el.textContent=f?f.name:'Datei wählen (.docx / .pdf / .txt …)'; const g=document.getElementById('imp_group'); if(f&&g&&!g.value) g.value=importGroupDefault(f.name); }
+async function runImportAnalyze(){
+  const fileInput=document.getElementById('imp_file'); const file=fileInput&&fileInput.files&&fileInput.files[0];
+  const pasted=val('imp_text'); const group=val('imp_group');
+  const useAI = document.getElementById('imp_ai') ? val('imp_ai')==='1' : false;
+  const btn=document.getElementById('imp_run'); const prev=document.getElementById('imp_preview');
+  if(!file && !pasted.trim()){ toast('Bitte Datei wählen oder Text einfügen','warn'); return; }
+  if(btn){ btn.disabled=true; btn.innerHTML='<span class="spin"></span>Analysiere…'; }
+  try{
+    let text = pasted.trim(); if(file) text=await extractFileText(file);
+    if(!text||!text.trim()) throw {msg:'Kein Text gefunden'};
+    let tasks;
+    if(useAI){ try{ tasks=await aiParseTasks(text,group); }catch(e){ tasks=parseTasksLocal(text,group); toast('KI nicht verfügbar – einfache Analyse genutzt','warn'); } }
+    else tasks=parseTasksLocal(text,group);
+    tasks=tasks.filter(t=>t.title&&t.title.length>=3);
+    _importParsed=tasks.map((t,i)=>({...t,_i:i,_on:true}));
+    renderImportPreview();
+    if(!tasks.length) toast('Keine Aufgaben erkannt – Text/Format prüfen','warn');
+  }catch(e){ if(prev) prev.innerHTML=''; toast((e&&e.msg)||'Analyse fehlgeschlagen','warn'); }
+  if(btn){ btn.disabled=false; btn.textContent='Analysieren'; }
+}
+function renderImportPreview(){
+  const prev=document.getElementById('imp_preview'); if(!prev) return;
+  if(!_importParsed.length){ prev.innerHTML=''; return; }
+  const rows=_importParsed.map(t=>`<div class="improw" data-i="${t._i}">
+    <input type="checkbox" class="imp_on" ${t._on?'checked':''} onchange="impToggle(${t._i},this.checked)">
+    <input type="text" class="imp_title" value="${esc(t.title)}">
+    <input type="date" class="imp_due" value="${esc(t.due||'')}">
+    <input type="text" class="imp_grp" value="${esc(t.group||'')}" placeholder="Gruppe">
+  </div>`).join('');
+  const n=_importParsed.filter(t=>t._on).length;
+  prev.innerHTML=`<div class="section-div">Vorschau – ${_importParsed.length} erkannt</div>
+    <div class="imptbl-head"><span></span><span>Aufgabe</span><span>Frist</span><span>Gruppe</span></div>
+    <div class="imptbl">${rows}</div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;gap:8px;flex-wrap:wrap">
+      <button type="button" class="btn ghost sm" onclick="impToggleAll()">Alle aus-/abwählen</button>
+      <button type="button" class="btn primary" id="imp_do" onclick="doImport()">${n} Aufgaben übernehmen</button>
+    </div>`;
+}
+function impToggle(i,on){ const t=_importParsed.find(x=>x._i===i); if(t) t._on=on; const b=document.getElementById('imp_do'); if(b) b.textContent=_importParsed.filter(x=>x._on).length+' Aufgaben übernehmen'; }
+function impToggleAll(){ const allOn=_importParsed.every(t=>t._on); _importParsed.forEach(t=>t._on=!allOn); renderImportPreview(); }
+function doImport(){
+  const rows=[...document.querySelectorAll('#imp_preview .improw')]; let n=0;
+  rows.forEach(r=>{ if(!r.querySelector('.imp_on').checked) return; const title=r.querySelector('.imp_title').value.trim(); if(!title) return; const due=r.querySelector('.imp_due').value; const group=r.querySelector('.imp_grp').value.trim(); db.tasks.push({id:uid(),title,due:due||'',group,notes:'',done:false}); n++; });
+  if(!n){ toast('Nichts ausgewählt','warn'); return; }
+  save(); closeModal(); state.view='aufgaben'; state.taskFilter='open'; render(); toast(n+' Aufgabe'+(n!==1?'n':'')+' importiert');
 }
 
 /* ---------- Setter ---------- */
@@ -1554,11 +1760,8 @@ function openInvest(id){
       ${field('i_value','Aktueller Wert',i.value,{type:'number',step:'0.01',ph:'0.00'})}
     </div>
     <div class="section-div">Live-Kurs (Aktie/ETF, optional)</div>
-    ${field('i_auto','Automatische Kurse',i.autoUpdate===false?'0':'1',{type:'select',options:[['1','ein — bei „Kurse aktualisieren"'],['0','aus — Wert manuell pflegen']],hint:'benötigt API-Key (Einstellungen)'})}
-    <div class="fg-row">
-      ${field('i_symbol','Symbol / Ticker',i.symbol,{ph:'z. B. EUNL, VWRL — überschreibt ISIN-Suche'})}
-      ${field('i_mic','Börse (MIC)',i.mic,{ph:'z. B. XETR, XSWX'})}
-    </div>
+    ${field('i_auto','Automatische Kurse',i.autoUpdate===false?'0':'1',{type:'select',options:[['1','ein — bei „Kurse aktualisieren"'],['0','aus — Wert manuell pflegen']],hint:'benötigt Kurs-Proxy (Einstellungen) + Stückzahl'})}
+    ${field('i_symbol','Yahoo-Symbol (optional)',i.symbol,{ph:'z. B. EUNL.DE · VWRL.SW · CSPX.L',hint:'überschreibt die ISIN-Suche; Endung = Börse (.DE Xetra, .SW SIX, .L London)'})}
     <div class="section-div">Sparplan (optional)</div>
     <div class="fg-row">
       ${field('i_plan','Sparrate',i.planAmount,{type:'number',step:'0.01',ph:'0.00'})}
@@ -1568,7 +1771,7 @@ function openInvest(id){
   `,`saveInvest('${id||''}')`));
 }
 function saveInvest(id){
-  const obj={ name:val('i_name'), type:val('i_type'), country:val('i_country'), currency:val('i_currency'), isin:val('i_isin'), accountId:val('i_acc'), shares:num(val('i_shares')), buyPrice:num(val('i_buy')), value:num(val('i_value')), planAmount:num(val('i_plan')), planInterval:val('i_planint'), symbol:val('i_symbol'), mic:val('i_mic'), autoUpdate:val('i_auto')==='1', notes:val('i_notes') };
+  const obj={ name:val('i_name'), type:val('i_type'), country:val('i_country'), currency:val('i_currency'), isin:val('i_isin'), accountId:val('i_acc'), shares:num(val('i_shares')), buyPrice:num(val('i_buy')), value:num(val('i_value')), planAmount:num(val('i_plan')), planInterval:val('i_planint'), symbol:val('i_symbol'), autoUpdate:val('i_auto')==='1', notes:val('i_notes') };
   if(!obj.name){ toast('Bitte eine Bezeichnung angeben','warn'); return; }
   if(id) Object.assign(db.investments.find(x=>x.id===id),obj); else { obj.id=uid(); db.investments.push(obj); }
   save(); closeModal(); render(); toast('Investition gespeichert');
@@ -1665,6 +1868,162 @@ function saveContract(id){
 function delContract(id){ confirmDel('Vertrag löschen?','Der Eintrag wird dauerhaft entfernt.',()=>{ db.contracts=db.contracts.filter(x=>x.id!==id); save(); render(); toast('Vertrag gelöscht'); }); }
 function bumpReview(id){ const c=db.contracts.find(x=>x.id===id); if(!c) return; const base=c.review?new Date(c.review+'T00:00:00'):new Date(); const today=new Date(); if(base<today) base.setTime(today.getTime()); base.setFullYear(base.getFullYear()+1); c.review=base.toISOString().slice(0,10); save(); render(); toast('Prüftermin auf '+fmtDate(c.review)+' gesetzt'); }
 
+/* ===================== KÜNDIGUNGSSCHREIBEN ===================== */
+/* Unterschrift (PDF/Bild) wird zugeschnitten und lokal gespeichert; PDF via jsPDF (CDN). */
+function autoTrimCanvas(cv){
+  const ctx=cv.getContext('2d'); const w=cv.width,h=cv.height;
+  let data; try{ data=ctx.getImageData(0,0,w,h).data; }catch(e){ return {dataURL:cv.toDataURL('image/png'), w, h}; }
+  let minX=w,minY=h,maxX=0,maxY=0,found=false;
+  for(let y=0;y<h;y++) for(let x=0;x<w;x++){ const i=(y*w+x)*4; const a=data[i+3]; const lum=0.299*data[i]+0.587*data[i+1]+0.114*data[i+2]; if(a>20 && lum<235){ found=true; if(x<minX)minX=x; if(x>maxX)maxX=x; if(y<minY)minY=y; if(y>maxY)maxY=y; } }
+  if(!found) return {dataURL:cv.toDataURL('image/png'), w, h};
+  const pad=Math.round(Math.max(w,h)*0.012)+4;
+  minX=Math.max(0,minX-pad); minY=Math.max(0,minY-pad); maxX=Math.min(w-1,maxX+pad); maxY=Math.min(h-1,maxY+pad);
+  const cw=maxX-minX+1, ch=maxY-minY+1;
+  const out=document.createElement('canvas'); out.width=cw; out.height=ch;
+  out.getContext('2d').drawImage(cv,minX,minY,cw,ch,0,0,cw,ch);
+  return {dataURL:out.toDataURL('image/png'), w:cw, h:ch};
+}
+async function processSignatureFile(file){
+  const isPdf=/pdf$/i.test(file.type||'')||/\.pdf$/i.test(file.name||'');
+  let cv;
+  if(isPdf){
+    const pdfjs=await ensurePdfjs();
+    const pdf=await pdfjs.getDocument({data:new Uint8Array(await file.arrayBuffer())}).promise;
+    const page=await pdf.getPage(1);
+    let vp=page.getViewport({scale:1}); const scale=Math.min(4, 1400/vp.width); vp=page.getViewport({scale});
+    cv=document.createElement('canvas'); cv.width=vp.width; cv.height=vp.height;
+    const ctx=cv.getContext('2d'); ctx.fillStyle='#fff'; ctx.fillRect(0,0,cv.width,cv.height);
+    await page.render({canvasContext:ctx, viewport:vp}).promise;
+  } else {
+    const url=URL.createObjectURL(file);
+    const img=await new Promise((res,rej)=>{ const im=new Image(); im.onload=()=>res(im); im.onerror=()=>rej({msg:'Bild nicht lesbar'}); im.src=url; });
+    const scale=Math.min(1, 1400/(img.naturalWidth||1))||1;
+    cv=document.createElement('canvas'); cv.width=Math.round((img.naturalWidth||300)*scale); cv.height=Math.round((img.naturalHeight||120)*scale);
+    cv.getContext('2d').drawImage(img,0,0,cv.width,cv.height); URL.revokeObjectURL(url);
+  }
+  return autoTrimCanvas(cv);
+}
+async function onSignatureFile(input){
+  const file=input.files&&input.files[0]; if(!file) return;
+  const box=document.getElementById('sig_preview'); if(box) box.innerHTML='<div class="t-sub">Verarbeite Unterschrift…</div>';
+  try{
+    const r=await processSignatureFile(file);
+    db.settings.signature=r.dataURL; db.settings.sigW=r.w; db.settings.sigH=r.h; save();
+    if(box) box.innerHTML=sigPreviewHTML(); toast('Unterschrift gespeichert');
+  }catch(e){ if(box) box.innerHTML=sigPreviewHTML(); toast((e&&e.msg)||'Unterschrift konnte nicht verarbeitet werden','warn'); }
+  input.value='';
+}
+function removeSignature(){ db.settings.signature=''; db.settings.sigW=0; db.settings.sigH=0; save(); const box=document.getElementById('sig_preview'); if(box) box.innerHTML=sigPreviewHTML(); toast('Unterschrift entfernt'); }
+function sigPreviewHTML(){
+  if(db.settings.signature) return `<div class="sigbox"><img src="${db.settings.signature}" alt="Unterschrift"></div><div><button type="button" class="btn ghost sm" style="margin-top:8px" onclick="removeSignature()">Unterschrift entfernen</button></div>`;
+  return `<div class="sigph">Noch keine Unterschrift hinterlegt.</div>`;
+}
+let _jspdfReady=false;
+async function ensureJsPDF(){
+  if(window.jspdf&&window.jspdf.jsPDF) return window.jspdf.jsPDF;
+  await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
+  if(!(window.jspdf&&window.jspdf.jsPDF)) throw {msg:'PDF-Bibliothek nicht verfügbar (Internet nötig)'};
+  return window.jspdf.jsPDF;
+}
+
+let _cancelCtx=null;
+function cancelEntity(){ if(!_cancelCtx) return null; return (_cancelCtx.kind==='ins'?db.insurances:db.contracts).find(x=>x.id===_cancelCtx.id)||null; }
+function cancelTypeLabel(kind,ent){ return kind==='ins'? (INS_TYPES[ent.type]||'Versicherung') : (CON_TYPES[ent.type]||'Vertrag'); }
+function openCancellation(kind,id){
+  const ent=(kind==='ins'?db.insurances:db.contracts).find(x=>x.id===id); if(!ent) return;
+  _cancelCtx={kind,id};
+  const ref = kind==='ins' ? (ent.policyNo||'') : (ent.number||'');
+  const refLabel = kind==='ins' ? 'Versicherungs-Nr.' : 'Vertrags-/Kundennr.';
+  const suggested = kind==='ins' ? (ent.mainDue||'') : (ent.minTermEnd||'');
+  const ortDefault = (db.settings.senderCity||'').replace(/^\d{4,5}\s+/,'');
+  const missing=[]; if(!(db.settings.senderName||'').trim()) missing.push('Absender'); if(!db.settings.signature) missing.push('Unterschrift');
+  const warn = missing.length? `<div class="icard-note" style="color:var(--warn)">Für ein vollständiges Schreiben fehlt noch: ${missing.join(' und ')}. Du kannst es trotzdem erstellen oder zuerst in den <strong>Einstellungen → Briefkopf &amp; Unterschrift</strong> ergänzen.</div>`:'';
+  openModal(`<div class="modal-head"><h2>Kündigung erstellen</h2><button class="x" onclick="closeModal()" aria-label="Schließen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+  <div class="modal-body">
+    ${warn}
+    <div class="fg-row">
+      ${field('k_to','Empfänger (Anbieter)',ent.provider,{ph:'Name des Unternehmens'})}
+      ${field('k_ref',refLabel,ref,{ph:'optional'})}
+    </div>
+    ${field('k_addr','Empfänger-Adresse',ent.cancelAddress,{type:'textarea',ph:'Straße Nr.\nPLZ Ort'})}
+    <div class="fg-row">
+      ${field('k_date','Kündigung zum',suggested,{type:'date',hint:'leer = zum nächstmöglichen Zeitpunkt'})}
+      ${field('k_ort','Ort (Datumszeile)',ortDefault,{ph:'z. B. Schallstadt'})}
+    </div>
+    ${field('k_sepa','SEPA-Lastschrift widerrufen',ent.country==='ch'?'0':'1',{type:'select',options:[['1','ja — Einzugsermächtigung widerrufen'],['0','nein']]})}
+    ${field('k_extra','Zusätzlicher Text (optional)','',{type:'textarea',ph:'z. B. Bitte um Bestätigung per E-Mail an …'})}
+    <div class="section-div">Vorschau</div>
+    <div id="k_print"><div id="k_preview" class="ksheet"></div></div>
+    <div style="margin-top:16px;display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap">
+      <button type="button" class="btn ghost" onclick="closeModal()">Schließen</button>
+      <button type="button" class="btn ghost" onclick="printCancellation()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9V3h12v6M6 18H4a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2h-2M6 14h12v7H6z"/></svg>Drucken</button>
+      <button type="button" class="btn primary" onclick="buildCancellationPDF()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0l-4-4m4 4l4-4M5 21h14"/></svg>Als PDF herunterladen</button>
+    </div>
+  </div>`);
+  ['k_to','k_ref','k_addr','k_date','k_ort','k_sepa','k_extra'].forEach(idn=>{ const el=document.getElementById(idn); if(el){ el.addEventListener('input',kPreview); el.addEventListener('change',kPreview); } });
+  kPreview();
+}
+function cancelModel(){
+  const ent=cancelEntity(); if(!ent||!_cancelCtx) return null; const kind=_cancelCtx.kind; const s=db.settings;
+  const senderLines=[s.senderName,s.senderStreet,s.senderCity].map(x=>(x||'').trim()).filter(Boolean);
+  const toLines=[(val('k_to')||'').trim(), ...((val('k_addr')||'').split('\n').map(x=>x.trim()).filter(Boolean))].filter(Boolean);
+  const ort=(val('k_ort')||'').trim(); const dateStr=fmtDateLong(todayISO());
+  const ref=(val('k_ref')||'').trim();
+  const typeLabel=cancelTypeLabel(kind,ent);
+  const refLabel = kind==='ins'?'Versicherungs-Nr.':'Vertrags-/Kundennr.';
+  const subject='Kündigung '+typeLabel+(ref?(' – '+refLabel+' '+ref):'');
+  const kdate=val('k_date');
+  const termin = kdate ? ('zum '+fmtDateLong(kdate)) : 'fristgerecht zum nächstmöglichen Zeitpunkt';
+  const obj = kind==='ins'?'die oben genannte Versicherung':'den oben genannten Vertrag';
+  const refInline = ref?(' ('+refLabel+' '+ref+')'):'';
+  const paras=['Sehr geehrte Damen und Herren,', 'hiermit kündige ich '+obj+refInline+' '+termin+'.', 'Bitte bestätigen Sie mir den Eingang dieser Kündigung sowie den Beendigungszeitpunkt schriftlich.'];
+  if(val('k_sepa')==='1') paras.push('Eine ggf. erteilte Einzugsermächtigung bzw. mein SEPA-Lastschriftmandat widerrufe ich mit Wirkung zum Beendigungszeitpunkt.');
+  const extra=(val('k_extra')||'').trim(); if(extra) paras.push(extra);
+  return { senderLines, toLines, ort, dateStr, subject, paras, name:(s.senderName||'').trim(), signature:s.signature, sigW:s.sigW, sigH:s.sigH };
+}
+function kPreview(){
+  const m=cancelModel(); const box=document.getElementById('k_preview'); if(!box) return; if(!m){ box.innerHTML=''; return; }
+  const ortDate=(m.ort?m.ort+', den ':'den ')+m.dateStr;
+  box.innerHTML=`
+    <div class="ks-sender">${m.senderLines.length?m.senderLines.map(esc).join('<br>'):'<span class="sigph">Absender – bitte in Einstellungen hinterlegen</span>'}</div>
+    <div class="ks-to">${m.toLines.length?m.toLines.map(esc).join('<br>'):'—'}</div>
+    <div class="ks-date">${esc(ortDate)}</div>
+    <div class="ks-subj">${esc(m.subject)}</div>
+    ${m.paras.map(p=>`<p class="ks-p">${esc(p)}</p>`).join('')}
+    <p class="ks-p" style="margin-top:18px">Mit freundlichen Grüßen</p>
+    ${m.signature?`<img class="ks-sig" src="${m.signature}">`:'<div style="height:42px"></div>'}
+    <div class="ks-name">${esc(m.name)}</div>`;
+}
+function persistCancelEdits(){
+  const ent=cancelEntity(); if(!ent) return;
+  ent.cancelAddress=val('k_addr');
+  const ref=(val('k_ref')||'').trim();
+  if(_cancelCtx.kind==='ins'){ if(ref) ent.policyNo=ref; } else { if(ref) ent.number=ref; }
+  save();
+}
+async function buildCancellationPDF(){
+  const m=cancelModel(); if(!m){ toast('Keine Daten','warn'); return; }
+  persistCancelEdits();
+  let jsPDF; try{ jsPDF=await ensureJsPDF(); }catch(e){ toast((e&&e.msg)||'PDF nicht verfügbar','warn'); return; }
+  const doc=new jsPDF({unit:'mm',format:'a4'});
+  const L=25,R=190,top=22,contentW=R-L,lineH=5;
+  doc.setFont('helvetica','normal');
+  doc.setFontSize(9); doc.setTextColor(110); let y=top;
+  m.senderLines.forEach(l=>{ doc.text(l,L,y); y+=4; });
+  doc.setFontSize(11); doc.setTextColor(25);
+  y=Math.max(y+8,48); m.toLines.forEach(l=>{ doc.text(l,L,y); y+=5; });
+  y=Math.max(y+8,84); doc.text((m.ort?m.ort+', den ':'den ')+m.dateStr, R, y, {align:'right'});
+  y+=12; doc.setFont('helvetica','bold'); const sj=doc.splitTextToSize(m.subject,contentW); doc.text(sj,L,y); y+=sj.length*lineH; doc.setFont('helvetica','normal');
+  y+=7;
+  m.paras.forEach(p=>{ const lines=doc.splitTextToSize(p,contentW); if(y>270){ doc.addPage(); y=top; } doc.text(lines,L,y); y+=lines.length*lineH+4; });
+  y+=6; doc.text('Mit freundlichen Grüßen',L,y); y+=6;
+  if(m.signature && m.sigW>0){ const wmm=48; const hmm=Math.max(8,Math.min(24, wmm*(m.sigH/m.sigW))); try{ doc.addImage(m.signature,'PNG',L,y,wmm,hmm); y+=hmm+2; }catch(e){ y+=12; } } else y+=14;
+  doc.text(m.name||'',L,y);
+  const fn='Kuendigung_'+((val('k_to')||'Vertrag').replace(/[^A-Za-z0-9]+/g,'_').replace(/^_+|_+$/g,'').slice(0,40)||'Schreiben')+'.pdf';
+  doc.save(fn); toast('Kündigung als PDF erstellt');
+}
+function printCancellation(){ kPreview(); persistCancelEdits(); setTimeout(()=>window.print(),60); }
+
 /* ---------- Expense ---------- */
 function openExpense(id){
   const e=id?db.expenses.find(x=>x.id===id):{ date:todayISO(), currency:baseCur() };
@@ -1695,13 +2054,26 @@ function openSettings(){
     ${field('set_base','Basiswährung',baseCur(),{type:'select',options:CUR_OPTS,hint:'Währung für alle Gesamtsummen &amp; Auswertungen'})}
     ${field('set_rate','Wechselkurs 1 € = … CHF',rate(),{type:'number',step:'0.0001',ph:'0.93'})}
     <div class="icard-note">Du erfasst jeden Betrag in der Währung des jeweiligen Kontos, Depots oder Vertrags (EUR oder CHF). Für die Gesamtübersicht rechnet Hauptbuch alles in die Basiswährung um.</div>
-    <div class="section-div">Live-Kurse für Aktien &amp; ETFs</div>
-    ${field('set_tdkey','Twelve Data API-Key',db.settings.tdKey||'',{ph:'kostenlos auf twelvedata.com'})}
-    <div class="icard-note">Für den automatischen Abruf aktueller Marktwerte und Tagesveränderung. Hol dir einen <strong>kostenlosen Key auf twelvedata.com</strong> (Gratis-Tarif: 800 Abrufe/Tag, 8/Minute). Der Key wird ausschließlich lokal in deinem Browser gespeichert und nur an Twelve Data gesendet. Positionen mit hinterlegter ISIN werden automatisch dem passenden Börsenkürzel deiner Positionswährung zugeordnet; falls eine ISIN nicht gefunden wird, kannst du im Investitions-Dialog ein Symbol/MIC manuell setzen (z. B. <span class="mono">EUNL · XETR</span> oder <span class="mono">VWRL · XSWX</span>). Edelmetalle und reine Spar-Konten werden nicht abgerufen. Der EUR/CHF-Kurs oben bleibt manuell.</div>
+    <div class="section-div">Live-Kurse für Aktien &amp; ETFs (Yahoo via Proxy)</div>
+    ${field('set_proxy','Kurs-Proxy-URL',db.settings.proxyUrl||'',{ph:'https://hauptbuch-proxy.DEINNAME.workers.dev'})}
+    <div class="icard-note">Für den automatischen Abruf aktueller Kurse und Tagesveränderung über <strong>Yahoo Finance</strong> — ganz ohne API-Key und mit voller Abdeckung europäischer Börsen. Da Browser Yahoo nicht direkt abfragen dürfen, läuft der Zugriff über deinen <strong>eigenen Cloudflare-Worker</strong> (Einrichtung dauert einmalig ~5 Min, kostenlos und privat — die Anleitung hast du im Chat). Trage hier die Worker-Adresse ein, z. B. <span class="mono">https://hauptbuch-proxy.deinname.workers.dev</span>. Positionen mit ISIN werden automatisch der passenden Börse deiner Währung zugeordnet (EUR → Xetra <span class="mono">.DE</span>, CHF → SIX <span class="mono">.SW</span>); andernfalls kannst du im Investitions-Dialog ein Yahoo-Symbol manuell setzen (z. B. <span class="mono">EUNL.DE</span>, <span class="mono">VWRL.SW</span>). Aktualisiert werden nur Positionen mit Stückzahl; der EUR/CHF-Kurs oben bleibt manuell.</div>
     <div class="section-div">KI-Dokumentenerkennung (optional)</div>
     ${field('set_aikey','Anthropic API-Key',db.settings.aiKey||'',{ph:'sk-ant-… (console.anthropic.com)'})}
     ${field('set_aimodel','Modell',db.settings.aiModel||'claude-sonnet-4-6',{type:'select',options:[['claude-sonnet-4-6','Claude Sonnet 4.6 (genauer)'],['claude-haiku-4-5-20251001','Claude Haiku 4.5 (schneller/günstiger)']]})}
     <div class="icard-note">Damit liest die App <strong>Versicherungsdokumente (PDF oder Foto)</strong> automatisch aus und füllt die Felder vor — Klick auf „Aus Dokument" im Versicherungs-Dialog. Schlüssel auf <strong>console.anthropic.com</strong>. <strong>Datenschutz:</strong> Bei aktivem Schlüssel wird das hochgeladene Dokument zur Auswertung an die Anthropic-API gesendet. Ohne Schlüssel funktioniert die Auswertung nur für PDFs mit Textebene und vollständig lokal (kein Upload). Der Schlüssel bleibt nur in deinem Browser.</div>
+    <div class="section-div">Briefkopf &amp; Unterschrift (für Kündigungen)</div>
+    ${field('set_sname','Dein Name',db.settings.senderName||'',{ph:'z. B. Dr. med. Simon Behringer'})}
+    <div class="fg-row">
+      ${field('set_sstreet','Straße &amp; Nr.',db.settings.senderStreet||'',{ph:'Musterstraße 1'})}
+      ${field('set_scity','PLZ &amp; Ort',db.settings.senderCity||'',{ph:'79227 Schallstadt'})}
+    </div>
+    <div class="icard-note">Diese Angaben bilden den Absender deiner Kündigungsschreiben. Lade unten deine <strong>Unterschrift</strong> hoch (PDF oder Bild — PNG mit transparentem Hintergrund sieht am besten aus). Die App schneidet sie automatisch zu und setzt sie ins Schreiben. Sie wird nur lokal gespeichert.</div>
+    <label class="upload" style="margin-top:6px">
+      <input type="file" accept=".pdf,image/*" onchange="onSignatureFile(this)" style="display:none">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4m0 0l-4 4m4-4l4 4M4 17v2a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-2"/></svg>
+      <span>Unterschrift hochladen (PDF / PNG / JPG)</span>
+    </label>
+    <div id="sig_preview" style="margin-top:10px">${sigPreviewHTML()}</div>
     ${securitySection()}
   `,'saveSettings()'));
 }
@@ -1718,7 +2090,7 @@ function securitySection(){
     <div class="fg-row">${field('pw_new','Passwort (min. 6 Zeichen)','',{type:'password'})}${field('pw_new2','Wiederholen','',{type:'password'})}</div>
     <button type="button" class="btn primary" onclick="setupPassword()">Passwortschutz aktivieren</button>`;
 }
-function saveSettings(){ db.settings.baseCurrency=val('set_base')||'EUR'; const r=num(val('set_rate')); db.settings.eurChf=r>0?r:0.93; db.settings.tdKey=val('set_tdkey'); db.settings.aiKey=val('set_aikey'); db.settings.aiModel=val('set_aimodel')||'claude-sonnet-4-6'; save(); closeModal(); render(); toast('Einstellungen gespeichert'); }
+function saveSettings(){ db.settings.baseCurrency=val('set_base')||'EUR'; const r=num(val('set_rate')); db.settings.eurChf=r>0?r:0.93; db.settings.proxyUrl=val('set_proxy').trim(); db.settings.aiKey=val('set_aikey'); db.settings.aiModel=val('set_aimodel')||'claude-sonnet-4-6'; db.settings.senderName=val('set_sname').trim(); db.settings.senderStreet=val('set_sstreet').trim(); db.settings.senderCity=val('set_scity').trim(); save(); closeModal(); render(); toast('Einstellungen gespeichert'); }
 
 /* ---------- Filters ---------- */
 function setInsFilter(v){ state.insFilter=v; render(); }
