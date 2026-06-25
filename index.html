@@ -451,13 +451,13 @@ function migrate(d){
   if(!Array.isArray(d.tasks)) d.tasks=[];
   if(!Array.isArray(d.history)) d.history=[];
   const defCur=c=>c==='ch'?'CHF':'EUR';
-  (d.accounts||[]).forEach(a=>{ a.country=a.country||'de'; a.currency=a.currency||defCur(a.country); });
-  (d.investments||[]).forEach(i=>{ i.country=i.country||'de'; i.currency=i.currency||defCur(i.country); });
-  (d.insurances||[]).forEach(s=>{ s.country=s.country||'de'; s.currency=s.currency||defCur(s.country); s.group=s.group||''; });
-  (d.contracts||[]).forEach(c=>{ c.country=c.country||'de'; c.currency=c.currency||defCur(c.country); });
-  (d.expenses||[]).forEach(e=>{ e.currency=e.currency||'EUR'; });
-  (d.liabilities||[]).forEach(l=>{ l.country=l.country||'de'; l.currency=l.currency||defCur(l.country); if(!Array.isArray(l.extraPayments)) l.extraPayments=[]; });
-  (d.tasks||[]).forEach(t=>{ t.done=!!t.done; t.group=t.group||''; });
+  (d.accounts||[]).forEach(a=>{ if(!a.id)a.id=uid(); a.country=a.country||'de'; a.currency=a.currency||defCur(a.country); });
+  (d.investments||[]).forEach(i=>{ if(!i.id)i.id=uid(); i.country=i.country||'de'; i.currency=i.currency||defCur(i.country); });
+  (d.insurances||[]).forEach(s=>{ if(!s.id)s.id=uid(); s.country=s.country||'de'; s.currency=s.currency||defCur(s.country); s.group=s.group||''; });
+  (d.contracts||[]).forEach(c=>{ if(!c.id)c.id=uid(); c.country=c.country||'de'; c.currency=c.currency||defCur(c.country); });
+  (d.expenses||[]).forEach(e=>{ if(!e.id)e.id=uid(); e.currency=e.currency||'EUR'; });
+  (d.liabilities||[]).forEach(l=>{ if(!l.id)l.id=uid(); l.country=l.country||'de'; l.currency=l.currency||defCur(l.country); if(!Array.isArray(l.extraPayments)) l.extraPayments=[]; });
+  (d.tasks||[]).forEach(t=>{ if(!t.id)t.id=uid(); t.done=!!t.done; t.group=t.group||''; });
   d.schema=SCHEMA;
   return d;
 }
