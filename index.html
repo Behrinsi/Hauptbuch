@@ -2101,11 +2101,14 @@ function setConFilter(v){ state.conFilter=v; render(); }
 function setExpMonth(v){ state.expMonth=v; render(); }
 
 /* ---------- Confirm ---------- */
+let _pendingConfirm=null;
 function confirmDel(title,text,onYes){
+  _pendingConfirm=onYes;
   openModal(`<div class="modal-head"><h2>${title}</h2><button class="x" onclick="closeModal()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
   <div class="modal-body"><p style="color:var(--ink-2)">${text}</p></div>
-  <div class="modal-foot"><button class="btn ghost" onclick="closeModal()">Abbrechen</button><button class="btn" style="background:var(--danger);border-color:var(--danger);color:#fff" onclick="(${onYes.toString()})();closeModal()">Löschen</button></div>`);
+  <div class="modal-foot"><button class="btn ghost" onclick="closeModal()">Abbrechen</button><button class="btn" style="background:var(--danger);border-color:var(--danger);color:#fff" onclick="runConfirm()">Löschen</button></div>`);
 }
+function runConfirm(){ const f=_pendingConfirm; _pendingConfirm=null; closeModal(); if(typeof f==='function'){ try{ f(); }catch(e){ console.warn('Aktion fehlgeschlagen:',e); } } }
 
 /* ---------- Quick add ---------- */
 function quickAdd(){ ({dashboard:openAccount,konten:openAccount,versicherungen:openInsurance,vertraege:openContract,ausgaben:openExpense}[state.view]||openAccount)(); }
