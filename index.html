@@ -387,12 +387,14 @@ select.inp,input.inp{padding:8px 12px;border:1px solid var(--line);border-radius
       <button onclick="openSettings()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-2.7 1.1V21a2 2 0 0 1-4 0v-.1A1.6 1.6 0 0 0 7 19.4a1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0-1.1-2.7H1a2 2 0 0 1 0-4h.1A1.6 1.6 0 0 0 2.6 7a1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.6 1.6 0 0 0 7 2.6h.1A1.6 1.6 0 0 0 8 1.1V1a2 2 0 0 1 4 0v.1A1.6 1.6 0 0 0 17 2.6a1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-1.1 2.7v.1a1.6 1.6 0 0 0 1.5 1H23a2 2 0 0 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1z"/></svg>Einstellungen &amp; Sicherheit</button>
       <button onclick="exportData()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>Sicherung exportieren</button>
       <button onclick="document.getElementById('importFile').click()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3m0 0l-4 4m4-4l4 4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>Sicherung importieren</button>
+      <button onclick="document.getElementById('bundleFile').click()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7l5-4 5 4M8 3v10M21 17l-5 4-5-4M16 21V11"/></svg>Daten zusammenführen</button>
       <button onclick="loadDemo()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/><circle cx="12" cy="12" r="3.5"/></svg>Beispieldaten laden</button>
       <button class="danger" onclick="wipeAll()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13"/></svg>Alle Daten löschen</button>
     </div>
   </aside>
 
   <input type="file" id="importFile" accept="application/json" style="display:none" onchange="importData(event)">
+  <input type="file" id="bundleFile" accept="application/json,.json" style="display:none" onchange="onBundleFile(this)">
 
   <div class="main">
     <div class="topbar">
@@ -2119,6 +2121,53 @@ function importData(ev){
   const file=ev.target.files[0]; if(!file) return; const r=new FileReader();
   r.onload=()=>{ try{ const data=JSON.parse(r.result); if(!data||typeof data!=='object') throw new Error(); db=migrate(Object.assign(structuredClone(DEFAULT_DB),data)); save(); render(); toast('Sicherung importiert'); }catch(e){ toast('Datei konnte nicht gelesen werden','warn'); } };
   r.readAsText(file); ev.target.value='';
+}
+/* Datensatz zusammenführen: fügt Verträge/Versicherungen/Ausgaben/Aufgaben HINZU (überschreibt nichts). */
+function importBundle(obj){
+  if(!obj||typeof obj!=='object') throw {msg:'Ungültige Datei'};
+  const n=v=>v==null?'':(''+v).trim();
+  const cur=v=>v==='CHF'?'CHF':'EUR'; const ctry=v=>v==='ch'?'ch':'de';
+  const nm=v=>(v===''||v==null)?'':(+v||0);
+  const c={insurances:0,contracts:0,expenses:0,tasks:0};
+  (obj.insurances||[]).forEach(s=>{
+    if(!n(s.provider)) return;
+    const o={ type:INS_TYPES[s.type]?s.type:'sonstiges', provider:n(s.provider), country:ctry(s.country), currency:cur(s.currency), group:n(s.group), policyNo:n(s.policyNo), active:s.active!==false, premium:+s.premium||0, interval:INTERVALS[s.interval]?s.interval:'jaehrlich', mainDue:n(s.mainDue), noticeMonths:nm(s.noticeMonths), coverage:n(s.coverage), bonus:n(s.bonus), conditions:n(s.conditions), deadlines:Array.isArray(s.deadlines)?s.deadlines.filter(d=>d&&d.date).map(d=>({label:n(d.label),date:d.date})):[] };
+    if(db.insurances.some(x=>x.provider===o.provider&&x.type===o.type&&(x.policyNo||'')===o.policyNo)) return;
+    o.id=uid(); db.insurances.push(o); c.insurances++;
+  });
+  (obj.contracts||[]).forEach(k=>{
+    if(!n(k.provider)) return;
+    const o={ type:CON_TYPES[k.type]?k.type:'sonstiges', provider:n(k.provider), tariff:n(k.tariff), country:ctry(k.country), currency:cur(k.currency), cost:+k.cost||0, interval:INTERVALS[k.interval]?k.interval:'monatlich', minTermEnd:n(k.minTermEnd), noticeMonths:nm(k.noticeMonths), review:n(k.review), notes:n(k.notes) };
+    if(db.contracts.some(x=>x.provider===o.provider&&(x.tariff||'')===o.tariff&&x.type===o.type)) return;
+    o.id=uid(); db.contracts.push(o); c.contracts++;
+  });
+  (obj.expenses||[]).forEach(e=>{
+    if(!(+e.amount)) return;
+    const o={ date:n(e.date)||todayISO(), amount:+e.amount||0, category:EXP_CATS.includes(e.category)?e.category:'Sonstiges', currency:cur(e.currency), description:n(e.description), recurring:['einmalig','monatlich','jaehrlich'].includes(e.recurring)?e.recurring:'einmalig' };
+    if(db.expenses.some(x=>(x.description||'')===o.description&&+x.amount===o.amount&&(x.recurring||'')===o.recurring)) return;
+    o.id=uid(); db.expenses.push(o); c.expenses++;
+  });
+  (obj.tasks||[]).forEach(t=>{
+    if(!n(t.title)) return;
+    const o={ title:n(t.title), due:n(t.due), group:n(t.group), notes:n(t.notes), done:!!t.done };
+    if(db.tasks.some(x=>(x.title||'')===o.title&&(x.due||'')===o.due)) return;
+    o.id=uid(); db.tasks.push(o); c.tasks++;
+  });
+  migrate(db); save(); render(); return c;
+}
+function onBundleFile(input){
+  const f=input.files&&input.files[0]; if(!f){ return; }
+  const r=new FileReader();
+  r.onload=()=>{
+    try{
+      const obj=JSON.parse(r.result);
+      const c=importBundle(obj);
+      const parts=[]; if(c.insurances)parts.push(c.insurances+'× Versicherungen'); if(c.contracts)parts.push(c.contracts+'× Verträge'); if(c.expenses)parts.push(c.expenses+'× Ausgaben'); if(c.tasks)parts.push(c.tasks+'× Aufgaben');
+      toast(parts.length?('Hinzugefügt: '+parts.join(', ')):'Nichts Neues — Einträge sind bereits vorhanden');
+    }catch(e){ toast((e&&e.msg)||'Datei konnte nicht gelesen werden','warn'); }
+    finally{ input.value=''; }
+  };
+  r.readAsText(f);
 }
 function wipeAll(){ confirmDel('Alle Daten löschen?','Sämtliche Konten, Investitionen, Versicherungen, Verträge und Ausgaben werden unwiderruflich entfernt. Erstelle vorher ggf. eine Sicherung.',()=>{ const s=db.settings; db=structuredClone(DEFAULT_DB); db.settings=s; save(); state.view='dashboard'; document.querySelectorAll('.nav-item').forEach(b=>b.classList.toggle('active',b.dataset.view==='dashboard')); render(); toast('Alle Daten gelöscht'); }); }
 
