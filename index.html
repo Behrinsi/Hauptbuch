@@ -373,6 +373,11 @@ select.inp,input.inp{padding:8px 12px;border:1px solid var(--line);border-radius
       <button class="nav-item" data-view="verbindlichkeiten" onclick="go('verbindlichkeiten')">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9.5L12 4l9 5.5M5 8.5V20h14V8.5M9 20v-6h6v6"/></svg>Verbindlichkeiten
       </button>
+      <div class="nav-label">Unterlagen</div>
+      <button class="nav-item" data-view="dokumente" onclick="go('dokumente')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="2.5" width="16" height="19" rx="2"/><path d="M8 7h8M8 11h8M8 15h5"/></svg>Dokumente &amp; Ausweise
+        <span class="badge" id="badge-dok" style="display:none"></span>
+      </button>
       <div class="nav-label">Liquidität &amp; Planung</div>
       <button class="nav-item" data-view="ausgaben" onclick="go('ausgaben')">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="M7 14l3.5-4 3 2.5L20 6"/></svg>Ausgaben
@@ -429,7 +434,7 @@ select.inp,input.inp{padding:8px 12px;border:1px solid var(--line);border-radius
    ========================================================= */
 const STORE_KEY='hauptbuch_v1';
 const SCHEMA=3;
-const DEFAULT_DB={ schema:SCHEMA, accounts:[], investments:[], insurances:[], contracts:[], expenses:[], liabilities:[], tasks:[], history:[],
+const DEFAULT_DB={ schema:SCHEMA, accounts:[], investments:[], insurances:[], contracts:[], expenses:[], liabilities:[], tasks:[], documents:[], history:[],
   settings:{ baseCurrency:'EUR', eurChf:0.93, proxyUrl:'', tdKey:'', aiKey:'', aiModel:'claude-sonnet-4-6', lastSync:null,
     senderName:'', senderStreet:'', senderCity:'', signature:'', sigW:0, sigH:0 } };
 
@@ -458,6 +463,8 @@ function migrate(d){
   (d.expenses||[]).forEach(e=>{ if(!e.id)e.id=uid(); e.currency=e.currency||'EUR'; });
   (d.liabilities||[]).forEach(l=>{ if(!l.id)l.id=uid(); l.country=l.country||'de'; l.currency=l.currency||defCur(l.country); if(!Array.isArray(l.extraPayments)) l.extraPayments=[]; });
   (d.tasks||[]).forEach(t=>{ if(!t.id)t.id=uid(); t.done=!!t.done; t.group=t.group||''; });
+  if(!Array.isArray(d.documents)) d.documents=[];
+  (d.documents||[]).forEach(x=>{ if(!x.id)x.id=uid(); x.category=x.category||'sonstiges'; x.country=x.country||''; });
   d.schema=SCHEMA;
   return d;
 }
@@ -805,7 +812,7 @@ function num(v){ const n=parseFloat(String(v).replace(',','.')); return isNaN(n)
 const ACC_TYPES={ giro:'Girokonto', tagesgeld:'Tagesgeld', festgeld:'Festgeld', depot:'Depot', bauspar:'Bausparen', saeule3a:'Säule 3a', krypto:'Krypto-Wallet', bargeld:'Bargeld', sonstiges:'Sonstiges' };
 const ACC_COLOR={ giro:'#0f766e', tagesgeld:'#2563eb', festgeld:'#7c3aed', depot:'#9c7b3c', bauspar:'#0891b2', saeule3a:'#be185d', krypto:'#c2410c', bargeld:'#15803d', sonstiges:'#64748b' };
 const INV_TYPES={ etf:'ETF', aktie:'Aktie', fonds:'Fonds', anleihe:'Anleihe', krypto:'Krypto', edelmetall:'Edelmetall', sonstiges:'Sonstiges' };
-const INS_TYPES={ haftpflicht:'Haftpflicht', kranken:'Krankenversicherung', krankenzusatz:'Kranken-Zusatz', kfz:'Kfz-Versicherung', hausrat:'Hausrat', leben:'Lebensversicherung', bu:'Berufsunfähigkeit', rechtschutz:'Rechtsschutz', unfall:'Unfall', zahn:'Zahnzusatz', tier:'Tierversicherung', sonstiges:'Sonstiges' };
+const INS_TYPES={ haftpflicht:'Haftpflicht', kranken:'Krankenversicherung', krankenzusatz:'Kranken-Zusatz', reise:'Reiseversicherung', kfz:'Kfz-Versicherung', hausrat:'Hausrat', leben:'Lebensversicherung', bu:'Berufsunfähigkeit', rechtschutz:'Rechtsschutz', unfall:'Unfall', zahn:'Zahnzusatz', tier:'Tierversicherung', sonstiges:'Sonstiges' };
 const CON_TYPES={ strom:'Strom', gas:'Gas', wasser:'Wasser', internet:'Internet', mobilfunk:'Mobilfunk', tv:'TV/Serafe', streaming:'Streaming/Abo', fitness:'Fitness', miete:'Miete', leasing:'Leasing', software:'Software', sonstiges:'Sonstiges' };
 const INTERVALS={ monatlich:'monatlich', quartal:'vierteljährlich', halbjahr:'halbjährlich', jaehrlich:'jährlich', einmalig:'einmalig' };
 const INTERVAL_MONTHS={ monatlich:1, quartal:3, halbjahr:6, jaehrlich:12, einmalig:0 };
@@ -839,7 +846,7 @@ function go(view){
 function toggleSide(open){ document.getElementById('side').classList.toggle('open',open); document.getElementById('scrim').classList.toggle('show',open); }
 function render(){
   updateBadges();
-  const map={ dashboard:viewDashboard, konten:viewKonten, versicherungen:viewVersicherungen, vertraege:viewVertraege, verbindlichkeiten:viewVerbindlichkeiten, ausgaben:viewAusgaben, aufgaben:viewAufgaben };
+  const map={ dashboard:viewDashboard, konten:viewKonten, versicherungen:viewVersicherungen, vertraege:viewVertraege, verbindlichkeiten:viewVerbindlichkeiten, ausgaben:viewAusgaben, aufgaben:viewAufgaben, dokumente:viewDokumente };
   document.getElementById('main').innerHTML=(map[state.view]||viewDashboard)();
 }
 
@@ -922,6 +929,9 @@ function upcomingItems(){
   db.tasks.forEach(t=>{
     if(!t.done && t.due) items.push({date:new Date(t.due+'T00:00:00'), title:t.title||'Aufgabe', desc:t.group?('Aufgabe · '+t.group):'Aufgabe', country:null, kind:'task', go:'aufgaben'});
   });
+  (db.documents||[]).forEach(d=>{
+    if(d.expires) items.push({date:new Date(d.expires+'T00:00:00'), title:'Dokument läuft ab: '+(d.label||'Dokument'), desc:(DOC_CATS[d.category]||'Dokument')+(d.issuer?' · '+d.issuer:''), country:d.country||null, kind:'doc', go:'dokumente'});
+  });
   items.forEach(it=>{ it.days=daysUntil(it.date); it.status=statusOf(it.days); });
   items.sort((a,b)=>a.date-b.date);
   return items;
@@ -932,6 +942,8 @@ function updateBadges(){
   const c=items.filter(i=>i.kind==='con'&&i.status!=='ok').length;
   const a=db.tasks.filter(t=>!t.done&&t.due&&daysUntil(new Date(t.due+'T00:00:00'))<=30).length;
   const bv=document.getElementById('badge-vers'), bc=document.getElementById('badge-vert'), ba=document.getElementById('badge-auf');
+  const dk=(db.documents||[]).filter(d=>d.expires&&daysUntil(new Date(d.expires+'T00:00:00'))<=90).length;
+  const bd=document.getElementById('badge-dok'); if(bd){ bd.style.display=dk?'grid':'none'; bd.textContent=dk; }
   if(bv){ bv.style.display=v?'grid':'none'; bv.textContent=v; }
   if(bc){ bc.style.display=c?'grid':'none'; bc.textContent=c; }
   if(ba){ ba.style.display=a?'grid':'none'; ba.textContent=a; }
@@ -1229,8 +1241,8 @@ function insCard(ins){
       ${ins.policyNo?`<div class="kv"><span class="k">Police</span><span class="v mono">${esc(ins.policyNo)}</span></div>`:''}
       ${ins.mainDue?`<div class="kv"><span class="k">Hauptfälligkeit</span><span class="v">${new Date(ins.mainDue+'T00:00:00').toLocaleDateString('de-DE',{day:'2-digit',month:'long'})}</span></div>`:''}
       ${num(ins.noticeMonths)>0?`<div class="kv"><span class="k">Kündigungsfrist</span><span class="v">${ins.noticeMonths} ${num(ins.noticeMonths)===1?'Monat':'Monate'}</span></div>`:''}
-      ${ins.coverage?`<div class="kv"><span class="k">Deckung</span><span class="v mono">${esc(ins.coverage)}</span></div>`:''}
       ${dls.map(d=>`<div class="kv"><span class="k">${esc(d.label||'Frist')}</span><span class="v">${fmtDate(d.date)}</span></div>`).join('')}
+      ${ins.coverage?`<div class="icard-note"><strong style="color:var(--ink)">Abgedeckt:</strong> ${esc(ins.coverage)}</div>`:''}
       ${ins.bonus?`<div class="icard-note"><strong style="color:var(--gold)">★ Bonusprogramm:</strong> ${esc(ins.bonus)}</div>`:''}
       ${ins.conditions?`<div class="icard-note">${esc(ins.conditions)}</div>`:''}
     </div>
@@ -1870,6 +1882,75 @@ function saveContract(id){
 function delContract(id){ confirmDel('Vertrag löschen?','Der Eintrag wird dauerhaft entfernt.',()=>{ db.contracts=db.contracts.filter(x=>x.id!==id); save(); render(); toast('Vertrag gelöscht'); }); }
 function bumpReview(id){ const c=db.contracts.find(x=>x.id===id); if(!c) return; const base=c.review?new Date(c.review+'T00:00:00'):new Date(); const today=new Date(); if(base<today) base.setTime(today.getTime()); base.setFullYear(base.getFullYear()+1); c.review=base.toISOString().slice(0,10); save(); render(); toast('Prüftermin auf '+fmtDate(c.review)+' gesetzt'); }
 
+/* ---------- Dokumente & Ausweise ---------- */
+const DOC_CATS={ sozialv:'Sozialversicherung', ausweis:'Ausweis & Aufenthalt', steuer:'Steuer', beruf:'Beruf & Diplom', sonstiges:'Sonstiges' };
+function viewDokumente(){
+  const all=db.documents||[];
+  const sorted=[...all].sort((a,b)=>{ const ea=a.expires?new Date(a.expires):null, eb=b.expires?new Date(b.expires):null; if(ea&&eb) return ea-eb; if(ea) return -1; if(eb) return 1; return (a.label||'').localeCompare(b.label||''); });
+  let body;
+  if(all.length===0){
+    body=empty('doc','Noch keine Dokumente &amp; Ausweise','Erfasse hier wichtige Nummern und Ausweise ohne laufende Kosten — AHV-/Rentenversicherungsnummer, Steuer-ID, Reisepass, Aufenthaltsbewilligung, Diplom (GLN) usw. Mit Ablaufdatum erinnert dich Hauptbuch rechtzeitig.','openDocument()','Dokument erfassen');
+  } else {
+    const groups={}; sorted.forEach(d=>{ const c=DOC_CATS[d.category]?d.category:'sonstiges'; (groups[c]=groups[c]||[]).push(d); });
+    body=Object.keys(DOC_CATS).filter(c=>groups[c]&&groups[c].length).map(c=>`<div class="nav-label" style="margin:16px 2px 8px">${DOC_CATS[c]}</div><div class="cardgrid">${groups[c].map(docCard).join('')}</div>`).join('');
+  }
+  const expSoon=all.filter(d=>d.expires&&daysUntil(new Date(d.expires+'T00:00:00'))<=90).length;
+  return `
+  <div class="page-head">
+    <div><h1>Dokumente &amp; Ausweise</h1><div class="sub">${all.length} ${all.length===1?'Eintrag':'Einträge'}${expSoon?` · ${expSoon} laufen bald ab`:''} · wichtige Nummern &amp; Ausweise zum Nachschlagen</div></div>
+    <button class="btn primary" onclick="openDocument()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>Dokument</button>
+  </div>
+  ${body}`;
+}
+function docExpiryFlag(d){ if(!d.expires) return null; const days=daysUntil(new Date(d.expires+'T00:00:00')); if(days<0) return {over:true,days}; if(days<=90) return {over:false,days}; return null; }
+function docCard(d){
+  const flag=docExpiryFlag(d);
+  let flagLine='';
+  if(flag) flagLine=`<div class="flag-line ${flag.over?'over':''}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 8v5M12 16.5v.01M10.3 3.8L2.6 17a2 2 0 0 0 1.7 3h15.4a2 2 0 0 0 1.7-3L13.7 3.8a2 2 0 0 0-3.4 0z"/></svg>${flag.over?'Abgelaufen':'Läuft ab'} — ${relText(flag.days)}</div>`;
+  return `<div class="icard ${flag?'flagged':''}">
+    ${flagLine}
+    <div class="icard-top">
+      <div class="icard-ico" style="background:var(--surface-3);color:var(--ink-2)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="2.5" width="16" height="19" rx="2"/><path d="M8 7h8M8 11h8M8 15h5"/></svg></div>
+      <div class="ti"><div class="typ">${d.country?`<span class="fl">${flagOf(d.country)}</span>`:''}${esc(d.label||'—')}</div><div class="pv">${DOC_CATS[d.category]||'Sonstiges'}</div></div>
+    </div>
+    <div class="icard-body">
+      ${d.value?`<div class="kv"><span class="k">Nummer / Wert</span><span class="v mono">${esc(d.value)}</span></div>`:''}
+      ${d.issuer?`<div class="kv"><span class="k">Aussteller</span><span class="v">${esc(d.issuer)}</span></div>`:''}
+      ${d.issued?`<div class="kv"><span class="k">Ausgestellt</span><span class="v">${fmtDate(d.issued)}</span></div>`:''}
+      ${d.expires?`<div class="kv"><span class="k">Gültig bis</span><span class="v" style="font-weight:600;color:${flag?(flag.over?'var(--danger)':'var(--warn)'):'inherit'}">${fmtDate(d.expires)}</span></div>`:''}
+      ${d.notes?`<div class="icard-note">${esc(d.notes)}</div>`:''}
+    </div>
+    <div class="icard-foot">
+      <button class="btn ghost sm" onclick="openDocument('${d.id}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L18.5 9.5a2.1 2.1 0 0 0-3-3L5 17v3z"/><path d="M13.5 6.5l3 3"/></svg>Bearbeiten</button>
+      <button class="icon-btn del" onclick="delDocument('${d.id}')" aria-label="Löschen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13"/></svg></button>
+    </div>
+  </div>`;
+}
+function openDocument(id){
+  const d=id?db.documents.find(x=>x.id===id):{};
+  openModal(modalShell(id?'Dokument bearbeiten':'Dokument erfassen',`
+    <div class="fg-row">
+      ${field('d_label','Bezeichnung',d.label,{ph:'z. B. AHV-Nummer · Reisepass'})}
+      ${field('d_cat','Kategorie',d.category||'sozialv',{type:'select',options:Object.entries(DOC_CATS)})}
+    </div>
+    ${field('d_value','Nummer / Wert',d.value,{ph:'z. B. 756.XXXX.XXXX.XX'})}
+    ${field('d_issuer','Ausstellende Stelle',d.issuer,{ph:'z. B. SVA St. Gallen · Bürgeramt'})}
+    <div class="fg-row">
+      ${field('d_country','Land',d.country||'',{type:'select',options:[['','—']].concat(COUNTRY_OPTS)})}
+      ${field('d_issued','Ausgestellt am',d.issued,{type:'date'})}
+    </div>
+    ${field('d_expires','Gültig bis / Ablauf',d.expires,{type:'date',hint:'optional — erinnert rechtzeitig vor Ablauf'})}
+    ${field('d_notes','Notiz',d.notes,{type:'textarea',ph:'Fundort, Besonderheiten, Verlängerungshinweise …'})}
+  `,`saveDocument('${id||''}')`));
+}
+function saveDocument(id){
+  const obj={ label:val('d_label'), category:val('d_cat'), value:val('d_value'), issuer:val('d_issuer'), country:val('d_country'), issued:val('d_issued'), expires:val('d_expires'), notes:val('d_notes') };
+  if(!obj.label){ toast('Bitte eine Bezeichnung angeben','warn'); return; }
+  if(id) Object.assign(db.documents.find(x=>x.id===id),obj); else { obj.id=uid(); db.documents.push(obj); }
+  save(); closeModal(); render(); toast('Dokument gespeichert');
+}
+function delDocument(id){ confirmDel('Dokument löschen?','Der Eintrag wird dauerhaft entfernt.',()=>{ db.documents=db.documents.filter(x=>x.id!==id); save(); render(); toast('Dokument gelöscht'); }); }
+
 /* ===================== KÜNDIGUNGSSCHREIBEN ===================== */
 /* Unterschrift (PDF/Bild) wird zugeschnitten und lokal gespeichert; PDF via jsPDF (CDN). */
 function autoTrimCanvas(cv){
@@ -2111,7 +2192,7 @@ function confirmDel(title,text,onYes){
 function runConfirm(){ const f=_pendingConfirm; _pendingConfirm=null; closeModal(); if(typeof f==='function'){ try{ f(); }catch(e){ console.warn('Aktion fehlgeschlagen:',e); } } }
 
 /* ---------- Quick add ---------- */
-function quickAdd(){ ({dashboard:openAccount,konten:openAccount,versicherungen:openInsurance,vertraege:openContract,ausgaben:openExpense}[state.view]||openAccount)(); }
+function quickAdd(){ ({dashboard:openAccount,konten:openAccount,versicherungen:openInsurance,vertraege:openContract,ausgaben:openExpense,dokumente:openDocument}[state.view]||openAccount)(); }
 
 /* ===================== IMPORT/EXPORT ===================== */
 function exportData(){
@@ -2131,7 +2212,8 @@ function importBundle(obj){
   const n=v=>v==null?'':(''+v).trim();
   const cur=v=>v==='CHF'?'CHF':'EUR'; const ctry=v=>v==='ch'?'ch':'de';
   const nm=v=>(v===''||v==null)?'':(+v||0);
-  const c={insurances:0,contracts:0,expenses:0,tasks:0};
+  const c={insurances:0,contracts:0,expenses:0,tasks:0,documents:0};
+  if(!Array.isArray(db.documents)) db.documents=[];
   (obj.insurances||[]).forEach(s=>{
     if(!n(s.provider)) return;
     const o={ type:INS_TYPES[s.type]?s.type:'sonstiges', provider:n(s.provider), country:ctry(s.country), currency:cur(s.currency), group:n(s.group), policyNo:n(s.policyNo), active:s.active!==false, premium:+s.premium||0, interval:INTERVALS[s.interval]?s.interval:'jaehrlich', mainDue:n(s.mainDue), noticeMonths:nm(s.noticeMonths), coverage:n(s.coverage), bonus:n(s.bonus), conditions:n(s.conditions), deadlines:Array.isArray(s.deadlines)?s.deadlines.filter(d=>d&&d.date).map(d=>({label:n(d.label),date:d.date})):[] };
@@ -2156,6 +2238,12 @@ function importBundle(obj){
     if(db.tasks.some(x=>(x.title||'')===o.title&&(x.due||'')===o.due)) return;
     o.id=uid(); db.tasks.push(o); c.tasks++;
   });
+  (obj.documents||[]).forEach(x=>{
+    if(!n(x.label)) return;
+    const o={ label:n(x.label), category:DOC_CATS[x.category]?x.category:'sonstiges', value:n(x.value), issuer:n(x.issuer), country:(x.country==='ch'||x.country==='de')?x.country:'', issued:n(x.issued), expires:n(x.expires), notes:n(x.notes) };
+    if(db.documents.some(y=>(y.label||'')===o.label&&(y.value||'')===o.value)) return;
+    o.id=uid(); db.documents.push(o); c.documents++;
+  });
   migrate(db); save(); render(); return c;
 }
 function onBundleFile(input){
@@ -2165,7 +2253,7 @@ function onBundleFile(input){
     try{
       const obj=JSON.parse(r.result);
       const c=importBundle(obj);
-      const parts=[]; if(c.insurances)parts.push(c.insurances+'× Versicherungen'); if(c.contracts)parts.push(c.contracts+'× Verträge'); if(c.expenses)parts.push(c.expenses+'× Ausgaben'); if(c.tasks)parts.push(c.tasks+'× Aufgaben');
+      const parts=[]; if(c.insurances)parts.push(c.insurances+'× Versicherungen'); if(c.contracts)parts.push(c.contracts+'× Verträge'); if(c.expenses)parts.push(c.expenses+'× Ausgaben'); if(c.tasks)parts.push(c.tasks+'× Aufgaben'); if(c.documents)parts.push(c.documents+'× Dokumente');
       toast(parts.length?('Hinzugefügt: '+parts.join(', ')):'Nichts Neues — Einträge sind bereits vorhanden');
     }catch(e){ toast((e&&e.msg)||'Datei konnte nicht gelesen werden','warn'); }
     finally{ input.value=''; }
