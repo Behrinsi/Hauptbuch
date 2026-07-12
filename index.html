@@ -378,6 +378,16 @@ select.inp,input.inp{padding:8px 12px;border:1px solid var(--line);border-radius
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="2.5" width="16" height="19" rx="2"/><path d="M8 7h8M8 11h8M8 15h5"/></svg>Dokumente &amp; Ausweise
         <span class="badge" id="badge-dok" style="display:none"></span>
       </button>
+      <div class="nav-label">Steuer &amp; Immobilien</div>
+      <button class="nav-item" data-view="steuer" onclick="go('steuer')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2.5h12V21l-3-1.8L12 21l-3-1.8L6 21z"/><path d="M9 7.5h6M9 11h6M9 14.5h4"/></svg>Steuer &amp; Belege
+      </button>
+      <button class="nav-item" data-view="fahrten" onclick="go('fahrten')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="19" r="2"/><circle cx="18" cy="5" r="2"/><path d="M8 19h7a4 4 0 0 0 0-8H9a4 4 0 0 1 0-8h7"/></svg>Fahrtenbuch
+      </button>
+      <button class="nav-item" data-view="immobilien" onclick="go('immobilien')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="9" width="7" height="12"/><rect x="13.5" y="3" width="7" height="18"/><path d="M6.5 12.5h1M6.5 16h1M16.5 7h1M16.5 11h1M16.5 15h1"/></svg>Immobilien
+      </button>
       <div class="nav-label">Liquidität &amp; Planung</div>
       <button class="nav-item" data-view="ausgaben" onclick="go('ausgaben')">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="M7 14l3.5-4 3 2.5L20 6"/></svg>Ausgaben
@@ -400,6 +410,7 @@ select.inp,input.inp{padding:8px 12px;border:1px solid var(--line);border-radius
 
   <input type="file" id="importFile" accept="application/json" style="display:none" onchange="importData(event)">
   <input type="file" id="bundleFile" accept="application/json,.json" style="display:none" onchange="onBundleFile(this)">
+  <input type="file" id="attFile" accept="application/json,.json" style="display:none" onchange="onAttFile(this)">
 
   <div class="main">
     <div class="topbar">
@@ -434,12 +445,12 @@ select.inp,input.inp{padding:8px 12px;border:1px solid var(--line);border-radius
    ========================================================= */
 const STORE_KEY='hauptbuch_v1';
 const SCHEMA=3;
-const DEFAULT_DB={ schema:SCHEMA, accounts:[], investments:[], insurances:[], contracts:[], expenses:[], liabilities:[], tasks:[], documents:[], history:[],
+const DEFAULT_DB={ schema:SCHEMA, accounts:[], investments:[], insurances:[], contracts:[], expenses:[], liabilities:[], tasks:[], documents:[], properties:[], trips:[], taxdocs:[], history:[],
   settings:{ baseCurrency:'EUR', eurChf:0.93, proxyUrl:'', tdKey:'', aiKey:'', aiModel:'claude-sonnet-4-6', lastSync:null,
     senderName:'', senderStreet:'', senderCity:'', signature:'', sigW:0, sigH:0 } };
 
 let db=structuredClone(DEFAULT_DB);
-let state={ view:'dashboard', expMonth:ymNow(), insFilter:'all', insGroup:'all', conFilter:'all', taskFilter:'open', histRange:'1y' };
+let state={ view:'dashboard', expMonth:ymNow(), insFilter:'all', insGroup:'all', conFilter:'all', taskFilter:'open', histRange:'1y', taxYear:String(new Date().getFullYear()), taxProp:'all', tripYear:String(new Date().getFullYear()) };
 
 /* ---------- Storage + Migration ---------- */
 function migrate(d){
@@ -465,6 +476,12 @@ function migrate(d){
   (d.tasks||[]).forEach(t=>{ if(!t.id)t.id=uid(); t.done=!!t.done; t.group=t.group||''; });
   if(!Array.isArray(d.documents)) d.documents=[];
   (d.documents||[]).forEach(x=>{ if(!x.id)x.id=uid(); x.category=x.category||'sonstiges'; x.country=x.country||''; });
+  if(!Array.isArray(d.properties)) d.properties=[];
+  (d.properties||[]).forEach(x=>{ if(!x.id)x.id=uid(); });
+  if(!Array.isArray(d.trips)) d.trips=[];
+  (d.trips||[]).forEach(x=>{ if(!x.id)x.id=uid(); if(!x.purpose)x.purpose='privat'; });
+  if(!Array.isArray(d.taxdocs)) d.taxdocs=[];
+  (d.taxdocs||[]).forEach(x=>{ if(!x.id)x.id=uid(); if(!x.category)x.category='sonstiges'; if(!x.year)x.year=+((x.date||todayISO()).slice(0,4)); if(!Array.isArray(x.attachments))x.attachments=[]; });
   d.schema=SCHEMA;
   return d;
 }
@@ -846,7 +863,7 @@ function go(view){
 function toggleSide(open){ document.getElementById('side').classList.toggle('open',open); document.getElementById('scrim').classList.toggle('show',open); }
 function render(){
   updateBadges();
-  const map={ dashboard:viewDashboard, konten:viewKonten, versicherungen:viewVersicherungen, vertraege:viewVertraege, verbindlichkeiten:viewVerbindlichkeiten, ausgaben:viewAusgaben, aufgaben:viewAufgaben, dokumente:viewDokumente };
+  const map={ dashboard:viewDashboard, konten:viewKonten, versicherungen:viewVersicherungen, vertraege:viewVertraege, verbindlichkeiten:viewVerbindlichkeiten, ausgaben:viewAusgaben, aufgaben:viewAufgaben, dokumente:viewDokumente, steuer:viewSteuer, fahrten:viewFahrten, immobilien:viewImmobilien };
   document.getElementById('main').innerHTML=(map[state.view]||viewDashboard)();
 }
 
@@ -1951,6 +1968,378 @@ function saveDocument(id){
 }
 function delDocument(id){ confirmDel('Dokument löschen?','Der Eintrag wird dauerhaft entfernt.',()=>{ db.documents=db.documents.filter(x=>x.id!==id); save(); render(); toast('Dokument gelöscht'); }); }
 
+/* ---------- Steuer & Belege · Fahrtenbuch · Immobilien ---------- */
+const TAX_CATS={ beruf:'Werbungskosten Beruf', doppelhh:'Doppelte Haushaltsführung', fortbildung:'Fortbildung & Fachliteratur', versicherung:'Versicherungen & Vorsorge', spende:'Spenden', handwerker:'Handwerker & haushaltsnahe Leistungen', vermietung:'Vermietung — Kosten', nebenkosten:'Vermietung — Betriebskosten', einnahme:'Vermietung — Einnahmen', sonstiges:'Sonstiges' };
+const TRIP_PURPOSES={ heimfahrt:'Familienheimfahrt', arbeitsweg:'Arbeitsweg', dienst:'Dienstfahrt / beruflich', immobilie:'Fahrt zum Mietobjekt', privat:'Privat' };
+const VEH_SUGGEST=['VW Polo (FR-M 7769)','SEAT Leon (FR-P 3277)'];
+function fmtKm(n){ return new Intl.NumberFormat('de-DE',{maximumFractionDigits:1}).format(+n||0); }
+function sumByCur(arr){ const s={}; arr.forEach(x=>{ const a=+x.amount||0; if(!a) return; const c=x.currency||'EUR'; s[c]=(s[c]||0)+a; }); return s; }
+function fmtSums(s){ const e=Object.entries(s); return e.length?e.map(([c,v])=>fmtN(v,c)).join(' · '):'—'; }
+function setTaxYear(v){ state.taxYear=v; render(); }
+function setTaxProp(v){ state.taxProp=v; render(); }
+function setTripYear(v){ state.tripYear=v; render(); }
+
+/* --- Datei-Speicher (IndexedDB) für Beleg-Anhänge --- */
+function fdbOpen(){ return new Promise((res,rej)=>{ if(typeof indexedDB==='undefined') return rej(new Error('kein Dateispeicher')); const r=indexedDB.open('hauptbuch_files',1); r.onupgradeneeded=e=>{ const d=e.target.result; if(!d.objectStoreNames.contains('files')) d.createObjectStore('files',{keyPath:'id'}); }; r.onsuccess=e=>res(e.target.result); r.onerror=()=>rej(r.error); }); }
+async function fdbPut(rec){ const d=await fdbOpen(); return new Promise((res,rej)=>{ const t=d.transaction('files','readwrite'); t.objectStore('files').put(rec); t.oncomplete=()=>res(rec.id); t.onerror=()=>rej(t.error); }); }
+async function fdbGet(id){ const d=await fdbOpen(); return new Promise((res,rej)=>{ const q=d.transaction('files').objectStore('files').get(id); q.onsuccess=()=>res(q.result||null); q.onerror=()=>rej(q.error); }); }
+async function fdbDel(id){ const d=await fdbOpen(); return new Promise((res,rej)=>{ const t=d.transaction('files','readwrite'); t.objectStore('files').delete(id); t.oncomplete=()=>res(); t.onerror=()=>rej(t.error); }); }
+async function fdbAll(){ const d=await fdbOpen(); return new Promise((res,rej)=>{ const q=d.transaction('files').objectStore('files').getAll(); q.onsuccess=()=>res(q.result||[]); q.onerror=()=>rej(q.error); }); }
+
+let _pendingAttach=[]; let _attachBefore=[];
+function readAsDataURL(f){ return new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>res(r.result); r.onerror=()=>rej(new Error('Datei nicht lesbar')); r.readAsDataURL(f); }); }
+function shrinkImage(f){ return new Promise((res,rej)=>{ const img=new Image(); const url=URL.createObjectURL(f); img.onload=()=>{ try{ const M=1600; let w=img.width,h=img.height; const s=Math.min(1,M/Math.max(w,h)); w=Math.max(1,Math.round(w*s)); h=Math.max(1,Math.round(h*s)); const c=document.createElement('canvas'); c.width=w; c.height=h; c.getContext('2d').drawImage(img,0,0,w,h); URL.revokeObjectURL(url); res(c.toDataURL('image/jpeg',0.82)); }catch(e){ URL.revokeObjectURL(url); rej(e); } }; img.onerror=()=>{ URL.revokeObjectURL(url); rej(new Error('Bild nicht lesbar')); }; img.src=url; }); }
+async function prepAttachment(f){ const MAX=4*1024*1024;
+  if(f.type&&f.type.startsWith('image/')){ const data=await shrinkImage(f); if(data.length>MAX*1.4) throw new Error(f.name+': Bild zu groß'); return {id:uid(),name:f.name||'Foto.jpg',type:'image/jpeg',size:Math.round(data.length*0.75),data}; }
+  if(f.type==='application/pdf'){ if(f.size>MAX) throw new Error(f.name+': PDF größer als 4 MB'); const data=await readAsDataURL(f); return {id:uid(),name:f.name||'Beleg.pdf',type:'application/pdf',size:f.size,data}; }
+  throw new Error((f.name||'Datei')+': nur Fotos oder PDF');
+}
+async function onAttachPick(input){ const files=[...(input.files||[])]; input.value='';
+  for(const f of files){ try{ const rec=await prepAttachment(f); _pendingAttach.push(rec); }catch(e){ toast(e.message||'Datei konnte nicht übernommen werden','warn'); } }
+  renderAttachList();
+}
+function removeAttach(id){ _pendingAttach=_pendingAttach.filter(a=>a.id!==id); renderAttachList(); }
+function renderAttachList(){ const el=document.getElementById('attachList'); if(!el) return;
+  el.innerHTML=_pendingAttach.length?_pendingAttach.map(a=>`<span class="tag" style="gap:6px;align-items:center">${a.type==='application/pdf'?'PDF':'Foto'} · ${esc(a.name)}<button class="icon-btn del" style="width:20px;height:20px;min-width:20px" onclick="removeAttach('${a.id}')" aria-label="Entfernen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button></span>`).join(''):'<span class="hint">Keine Dateien angehängt</span>';
+}
+async function openAttachment(id){ let rec=null; try{ rec=await fdbGet(id); }catch(e){}
+  if(!rec||!rec.data){ toast('Datei auf diesem Gerät nicht vorhanden — ggf. „Beleg-Dateien laden" nutzen','warn'); return; }
+  const body=rec.type==='application/pdf'?`<iframe src="${rec.data}" style="width:100%;height:65vh;border:none;border-radius:10px;background:#fff"></iframe>`:`<img src="${rec.data}" style="max-width:100%;max-height:65vh;border-radius:10px">`;
+  openModal(`<div class="modal-head"><h2>${esc(rec.name||'Beleg')}</h2><button class="x" onclick="closeModal()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+  <div class="modal-body" style="text-align:center">${body}</div>
+  <div class="modal-foot"><button class="btn ghost" onclick="closeModal()">Schließen</button><a class="btn primary" href="${rec.data}" download="${esc(rec.name||'beleg')}">Herunterladen</a></div>`);
+}
+async function exportAttachments(){ let files=[]; try{ files=await fdbAll(); }catch(e){}
+  if(!files.length){ toast('Keine Beleg-Dateien vorhanden','warn'); return; }
+  const blob=new Blob([JSON.stringify({kind:'hauptbuch-belege',exported:todayISO(),files},null,0)],{type:'application/json'});
+  const url=URL.createObjectURL(blob); const a=document.createElement('a');
+  a.href=url; a.download='hauptbuch-belegdateien-'+todayISO()+'.json'; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+  toast(files.length+' Beleg-Dateien gesichert');
+}
+function onAttFile(input){ const f=input.files&&input.files[0]; if(!f) return; const r=new FileReader();
+  r.onload=async()=>{ try{ const obj=JSON.parse(r.result); const files=Array.isArray(obj.files)?obj.files:[]; let n=0;
+      for(const rec of files){ if(rec&&rec.id&&rec.data){ try{ await fdbPut(rec); n++; }catch(e){} } }
+      if(n) toast(n+' Beleg-Dateien geladen'); else toast('Keine Dateien in der Sicherung','warn');
+    }catch(e){ toast('Datei konnte nicht gelesen werden','warn'); }
+    finally{ input.value=''; } };
+  r.readAsText(f);
+}
+
+/* --- Steuer & Belege --- */
+function viewSteuer(){
+  const all=db.taxdocs||[];
+  const cy=String(new Date().getFullYear());
+  const years=[...new Set(all.map(x=>String(x.year||(x.date||'').slice(0,4))).filter(Boolean))]; if(!years.includes(cy)) years.push(cy); years.sort().reverse();
+  if(!state.taxYear) state.taxYear=cy;
+  if(state.taxYear!=='all'&&!years.includes(state.taxYear)) state.taxYear=cy;
+  if(state.taxProp!=='all'&&state.taxProp!=='none'&&!(db.properties||[]).some(p=>p.id===state.taxProp)) state.taxProp='all';
+  const y=state.taxYear, pf=state.taxProp;
+  const list=all.filter(x=>{ if(y!=='all'&&String(x.year)!==y) return false; if(pf==='all') return true; if(pf==='none') return !x.propertyId; return x.propertyId===pf; });
+  const sumExp=sumByCur(list.filter(x=>x.category!=='einnahme'));
+  const sumUml=sumByCur(list.filter(x=>x.umlage&&x.category!=='einnahme'));
+  const sumInc=sumByCur(list.filter(x=>x.category==='einnahme'));
+  const yearSel=`<select class="inp" onchange="setTaxYear(this.value)">${['all',...years].map(v=>`<option value="${v}" ${v===y?'selected':''}>${v==='all'?'Alle Jahre':'Steuerjahr '+v}</option>`).join('')}</select>`;
+  const propSel=`<select class="inp" onchange="setTaxProp(this.value)"><option value="all" ${pf==='all'?'selected':''}>Alle Belege</option><option value="none" ${pf==='none'?'selected':''}>Allgemein (ohne Objekt)</option>${(db.properties||[]).map(p=>`<option value="${p.id}" ${pf===p.id?'selected':''}>${esc(p.name)}</option>`).join('')}</select>`;
+  const groups={}; [...list].sort((a,b)=>(b.date||'').localeCompare(a.date||'')).forEach(x=>{ const c=TAX_CATS[x.category]?x.category:'sonstiges'; (groups[c]=groups[c]||[]).push(x); });
+  const body=list.length?Object.keys(TAX_CATS).filter(c=>groups[c]).map(c=>`<div class="nav-label" style="margin:16px 2px 8px">${TAX_CATS[c]}</div><div class="cardgrid">${groups[c].map(taxCard).join('')}</div>`).join(''):empty('doc','Noch keine Belege für diese Auswahl','Sammle hier steuerrelevante Rechnungen, Quittungen und E-Mail-Bestätigungen — mit Foto oder PDF als Anhang. Belege lassen sich einem Mietobjekt zuordnen und für die Nebenkostenabrechnung als „umlagefähig" markieren.','openTaxdoc()','Beleg erfassen');
+  return `
+  <div class="page-head">
+    <div><h1>Steuer &amp; Belege</h1><div class="sub">${list.length} ${list.length===1?'Beleg':'Belege'} · ${y==='all'?'alle Jahre':'Steuerjahr '+y}</div></div>
+    <button class="btn primary" onclick="openTaxdoc()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>Beleg</button>
+  </div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:-4px 0 14px">${yearSel}${propSel}<span style="flex:1"></span><button class="btn ghost sm" onclick="exportAttachments()">Beleg-Dateien sichern</button><button class="btn ghost sm" onclick="document.getElementById('attFile').click()">Beleg-Dateien laden</button></div>
+  <div class="panel" style="margin-bottom:10px"><div class="panel-body" style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+    <div class="fg" style="flex:2;min-width:220px;margin:0"><label for="qx_text">Schnellerfassung — z. B. bar bezahlt<span class="hint"> · Betrag darf im Text stehen</span></label><input id="qx_text" placeholder="z. B. Parkgebühr Fortbildung 12,50" onkeydown="if(event.key==='Enter')quickTaxdoc()"></div>
+    <div class="fg" style="width:110px;margin:0"><label for="qx_amount">Betrag</label><input id="qx_amount" type="number" step="0.01" inputmode="decimal" placeholder="autom."></div>
+    <div class="fg" style="width:120px;margin:0"><label for="qx_cur">Währung</label><select id="qx_cur">${CUR_OPTS.map(([v,l])=>`<option value="${v}">${l}</option>`).join('')}</select></div>
+    <div class="fg" style="width:200px;margin:0"><label for="qx_cat">Kategorie</label><select id="qx_cat">${Object.entries(TAX_CATS).map(([v,l])=>`<option value="${v}">${l}</option>`).join('')}</select></div>
+    <button class="btn primary" style="height:40px" onclick="quickTaxdoc()">Erfassen</button>
+  </div></div>
+  <div class="icard" style="margin-bottom:10px"><div class="icard-body">
+    <div class="kv"><span class="k">Ausgaben / Kosten</span><span class="v" style="font-weight:700">${fmtSums(sumExp)}</span></div>
+    <div class="kv"><span class="k">davon umlagefähig (Nebenkosten)</span><span class="v">${fmtSums(sumUml)}</span></div>
+    <div class="kv"><span class="k">Einnahmen Vermietung</span><span class="v">${fmtSums(sumInc)}</span></div>
+  </div></div>
+  ${body}`;
+}
+function taxCard(x){
+  const prop=x.propertyId?(db.properties||[]).find(p=>p.id===x.propertyId):null;
+  const att=(x.attachments||[]);
+  return `<div class="icard">
+    <div class="icard-top">
+      <div class="icard-ico" style="background:var(--surface-3);color:var(--ink-2)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2.5h12V21l-3-1.8L12 21l-3-1.8L6 21z"/><path d="M9 7.5h6M9 11h6M9 14.5h4"/></svg></div>
+      <div class="ti"><div class="typ">${x.country?`<span class="fl">${flagOf(x.country)}</span>`:''}${esc(x.title||'—')}</div><div class="pv">${fmtDate(x.date)}${prop?' · '+esc(prop.name):''}</div></div>
+      ${(+x.amount)?`<div class="num" style="font-weight:700;white-space:nowrap">${fmtN(x.amount,x.currency)}</div>`:''}
+    </div>
+    <div class="icard-body">
+      ${x.umlage?`<div class="kv"><span class="k">Nebenkosten</span><span class="v" style="font-weight:600">auf Mieter umlegbar</span></div>`:''}
+      ${x.source?`<div class="kv"><span class="k">Quelle / Ablage</span><span class="v">${esc(x.source)}</span></div>`:''}
+      ${att.length?`<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px">${att.map(a=>`<button class="btn ghost sm" onclick="openAttachment('${a.id}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px"><path d="M21 12.5l-8.2 8.2a5.5 5.5 0 0 1-7.8-7.8L13.4 4.5a3.7 3.7 0 0 1 5.2 5.2L10.4 18a1.8 1.8 0 0 1-2.6-2.6l7.6-7.6"/></svg>${esc(a.name||'Beleg')}</button>`).join('')}</div>`:''}
+      ${x.notes?`<div class="icard-note">${esc(x.notes)}</div>`:''}
+    </div>
+    <div class="icard-foot">
+      <button class="btn ghost sm" onclick="openTaxdoc('${x.id}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L18.5 9.5a2.1 2.1 0 0 0-3-3L5 17v3z"/><path d="M13.5 6.5l3 3"/></svg>Bearbeiten</button>
+      <button class="icon-btn del" onclick="delTaxdoc('${x.id}')" aria-label="Löschen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13"/></svg></button>
+    </div>
+  </div>`;
+}
+function openTaxdoc(id,presetProp){
+  const d=id?db.taxdocs.find(x=>x.id===id):{};
+  _attachBefore=(d&&Array.isArray(d.attachments))?d.attachments.map(a=>a.id):[];
+  _pendingAttach=(d&&Array.isArray(d.attachments))?d.attachments.map(a=>({id:a.id,name:a.name,type:a.type,size:a.size,data:null})):[];
+  const propOpts=[['','— kein Objekt / allgemein —']].concat((db.properties||[]).map(p=>[p.id,p.name]));
+  openModal(modalShell(id?'Beleg bearbeiten':'Beleg erfassen',`
+    ${field('tx_title','Bezeichnung',d.title,{ph:'z. B. Handwerkerrechnung Dach · Bahnticket · Spendenquittung'})}
+    <div class="fg-row">
+      ${field('tx_date','Datum',d.date||todayISO(),{type:'date',onchange:"var y=document.getElementById('tx_year'); if(y&&this.value) y.value=this.value.slice(0,4)"})}
+      ${field('tx_year','Steuerjahr',d.year||+( (d.date||todayISO()).slice(0,4)),{type:'number',step:'1',hint:'z. B. NK-Abrechnung fürs Vorjahr'})}
+    </div>
+    <div class="fg-row">
+      ${field('tx_cat','Kategorie',d.category||'beruf',{type:'select',options:Object.entries(TAX_CATS)})}
+      ${field('tx_country','Land',d.country||'de',{type:'select',options:[['','—']].concat(COUNTRY_OPTS)})}
+    </div>
+    <div class="fg-row">
+      ${field('tx_amount','Betrag',d.amount||'',{type:'number',step:'0.01',hint:'optional — leer für reine Ereignisse'})}
+      ${field('tx_cur','Währung',d.currency||'EUR',{type:'select',options:CUR_OPTS})}
+    </div>
+    <div class="fg-row">
+      ${field('tx_prop','Immobilie / Objekt',d.propertyId!=null&&d.propertyId!==undefined?d.propertyId:(presetProp||''),{type:'select',options:propOpts})}
+      ${field('tx_umlage','Nebenkosten: auf Mieter umlegbar?',d.umlage?'1':'0',{type:'select',options:[['0','nein'],['1','ja — umlagefähig']]})}
+    </div>
+    ${field('tx_source','Quelle / Ablage',d.source,{ph:'z. B. E-Mail-Bestätigung vom 12.03. · Ordner Steuer 2026'})}
+    ${field('tx_notes','Notiz',d.notes,{type:'textarea'})}
+    <div class="fg"><label>Anhänge (Foto oder PDF)</label>
+      <div id="attachList" style="display:flex;flex-wrap:wrap;gap:6px;margin:2px 0 8px"></div>
+      <input type="file" id="tx_files" accept="image/*,application/pdf" multiple style="display:none" onchange="onAttachPick(this)">
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <button type="button" class="btn ghost sm" onclick="document.getElementById('tx_files').click()">+ Datei hinzufügen</button>
+        <button type="button" class="btn ghost sm" onclick="recognizeReceipt()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px"><path d="M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2"/><path d="M7 12h10"/></svg>Inhalt aus Foto erkennen</button>
+        <span class="hint" id="ocrStatus"></span>
+      </div>
+      <span class="hint">Fotos werden automatisch verkleinert · Dateien liegen nur auf diesem Gerät (Sicherung über „Beleg-Dateien sichern")</span>
+    </div>
+  `,`saveTaxdoc('${id||''}')`));
+  renderAttachList();
+}
+async function saveTaxdoc(id){
+  const obj={ title:val('tx_title'), date:val('tx_date')||todayISO(), year:+val('tx_year')||+((val('tx_date')||todayISO()).slice(0,4)), country:val('tx_country'), category:TAX_CATS[val('tx_cat')]?val('tx_cat'):'sonstiges', amount:num(val('tx_amount')), currency:val('tx_cur')||'EUR', propertyId:val('tx_prop'), umlage:val('tx_umlage')==='1', source:val('tx_source'), notes:val('tx_notes') };
+  if(!obj.title){ toast('Bitte eine Bezeichnung angeben','warn'); return; }
+  let failed=0;
+  for(const a of _pendingAttach){ if(!a.data) continue; try{ await fdbPut({id:a.id,name:a.name,type:a.type,data:a.data}); }catch(e){ failed++; } }
+  const keep=_pendingAttach.map(a=>a.id);
+  for(const oldId of _attachBefore){ if(!keep.includes(oldId)){ try{ await fdbDel(oldId); }catch(e){} } }
+  obj.attachments=_pendingAttach.map(a=>({id:a.id,name:a.name,type:a.type,size:a.size||0}));
+  if(id){ const t=db.taxdocs.find(x=>x.id===id); if(t) Object.assign(t,obj); } else { obj.id=uid(); db.taxdocs.push(obj); }
+  _pendingAttach=[]; _attachBefore=[];
+  save(); closeModal(); render(); toast(failed?'Beleg gespeichert — '+failed+' Datei(en) konnten nicht abgelegt werden':'Beleg gespeichert');
+}
+function delTaxdoc(id){ confirmDel('Beleg löschen?','Der Beleg und seine angehängten Dateien werden dauerhaft entfernt.',()=>{ const t=db.taxdocs.find(x=>x.id===id); if(t)(t.attachments||[]).forEach(a=>{ try{ fdbDel(a.id).catch(()=>{}); }catch(e){} }); db.taxdocs=db.taxdocs.filter(x=>x.id!==id); save(); render(); toast('Beleg gelöscht'); }); }
+
+/* --- Beleg-Erkennung (Foto -> Betrag/Datum/Bezeichnung) --- */
+function normAmount(s){ s=String(s).replace(/[\s']/g,''); const lc=s.lastIndexOf(','), ld=s.lastIndexOf('.');
+  if(lc>ld){ s=s.replace(/\./g,'').replace(/,([0-9]{1,2})$/,'.$1').replace(/,/g,''); } else if(ld>lc){ s=s.replace(/,/g,''); }
+  const n=parseFloat(s); return isNaN(n)?0:Math.round(n*100)/100; }
+function extractReceiptData(text){
+  const t=String(text||''); const lines=t.split(/\r?\n/).map(l=>l.trim()).filter(Boolean);
+  const currency=/chf|\bfr\.|franken/i.test(t)?'CHF':(/€|eur\b/i.test(t)?'EUR':'');
+  const moneyRe=/(\d{1,3}(?:[.'\s]\d{3})+(?:[.,]\d{2})?|\d+[.,]\d{2})/g;
+  let amount=0;
+  const keyLines=lines.filter(l=>/(summe|gesamt|total|endbetrag|zu zahlen|brutto|betrag)/i.test(l));
+  for(const l of keyLines){ const ms=[...l.matchAll(moneyRe)].map(m=>normAmount(m[1])).filter(v=>v>0); if(ms.length){ amount=Math.max(...ms); break; } }
+  if(!amount){ const all=[]; for(const l of lines){ for(const m of l.matchAll(moneyRe)) all.push(normAmount(m[1])); } const pos=all.filter(v=>v>0); if(pos.length) amount=Math.max(...pos); }
+  let date=''; const dm=t.match(/(\d{1,2})\.(\d{1,2})\.(\d{2,4})/)||t.match(/(\d{4})-(\d{2})-(\d{2})/);
+  if(dm){ let y,mo,d; if(dm[0].includes('-')){ y=+dm[1]; mo=+dm[2]; d=+dm[3]; } else { d=+dm[1]; mo=+dm[2]; y=+dm[3]; if(y<100) y+=2000; }
+    if(y>=2000&&y<=2100&&mo>=1&&mo<=12&&d>=1&&d<=31) date=y+'-'+String(mo).padStart(2,'0')+'-'+String(d).padStart(2,'0'); }
+  let vendor=''; for(const l of lines){ if((l.match(/[A-Za-zÄÖÜäöüß]/g)||[]).length>=3&&!/^\d/.test(l)&&!/(summe|total|gesamt|mwst|ust|betrag)/i.test(l)){ vendor=l.slice(0,60); break; } }
+  return {amount,currency,date,vendor};
+}
+let _ocrLoad=null;
+function loadTesseract(){ if(typeof Tesseract!=='undefined') return Promise.resolve();
+  if(_ocrLoad) return _ocrLoad;
+  _ocrLoad=new Promise((res,rej)=>{ const s=document.createElement('script'); s.src='https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
+    s.onload=()=>res(); s.onerror=()=>{ _ocrLoad=null; rej(new Error('Erkennungs-Bibliothek konnte nicht geladen werden (Internetverbindung?)')); };
+    document.head.appendChild(s); });
+  return _ocrLoad; }
+async function ocrImage(dataUrl,onProgress){ await loadTesseract();
+  const w=await Tesseract.createWorker('deu',1,{logger:m=>{ if(onProgress&&m&&m.status==='recognizing text') onProgress(Math.round((m.progress||0)*100)); }});
+  try{ const r=await w.recognize(dataUrl); return (r&&r.data&&r.data.text)||''; } finally{ try{ await w.terminate(); }catch(e){} } }
+async function aiReceipt(dataUrl){
+  const b64=(dataUrl.split(',')[1])||''; const mt=(dataUrl.match(/^data:([^;]+)/)||[])[1]||'image/jpeg';
+  const body={ model:db.settings.aiModel||'claude-sonnet-4-6', max_tokens:400, messages:[{role:'user',content:[
+    {type:'image',source:{type:'base64',media_type:mt,data:b64}},
+    {type:'text',text:'Lies diesen Beleg (Rechnung/Quittung/Kassenbon, deutsch oder schweizerisch). Antworte NUR mit JSON ohne Markdown: {"title":"Händler und Zweck, kurz","amount":Gesamtbetrag als Zahl,"currency":"EUR" oder "CHF","date":"JJJJ-MM-TT"}. Unbekannte Felder: leerer String bzw. 0.'}]}] };
+  let res; try{ res=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'content-type':'application/json','x-api-key':db.settings.aiKey.trim(),'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},body:JSON.stringify(body)}); }catch(e){ throw new Error('Netzwerkfehler bei der KI-Anfrage'); }
+  if(!res.ok) throw new Error('KI-Anfrage fehlgeschlagen ('+res.status+')');
+  const j=await res.json(); const txt=((j.content||[]).map(c=>c.text||'').join('')).replace(/```json|```/g,'').trim();
+  let o={}; try{ o=JSON.parse(txt); }catch(e){ throw new Error('KI-Antwort unlesbar'); }
+  return { vendor:String(o.title||'').slice(0,60), amount:+o.amount||0, currency:o.currency==='CHF'?'CHF':(o.currency==='EUR'?'EUR':''), date:/^\d{4}-\d{2}-\d{2}$/.test(String(o.date||''))?o.date:'' };
+}
+async function recognizeReceipt(){
+  const st=document.getElementById('ocrStatus'); const say=t=>{ if(st&&st.textContent!==undefined) st.textContent=t; };
+  const a=_pendingAttach.find(x=>x.type&&String(x.type).startsWith('image/'));
+  if(!a){ toast('Bitte zuerst ein Foto des Belegs anhängen','warn'); return; }
+  let data=a.data;
+  if(!data){ try{ const rec=await fdbGet(a.id); data=rec&&rec.data; }catch(e){} }
+  if(!data){ toast('Foto auf diesem Gerät nicht verfügbar','warn'); return; }
+  let r=null;
+  try{
+    if(hasAiKey()){ say('Beleg wird gelesen (KI) …'); try{ r=await aiReceipt(data); }catch(e){ say('KI nicht verfügbar — lokale Erkennung …'); } }
+    if(!r){ say('Erkennung wird geladen …'); const text=await ocrImage(data,p=>say('Lese Beleg … '+p+' %')); r=extractReceiptData(text); }
+    const got=[];
+    const tt=document.getElementById('tx_title'); if(tt&&!String(tt.value||'').trim()&&r.vendor){ tt.value=r.vendor; got.push('„'+r.vendor+'"'); }
+    const ta=document.getElementById('tx_amount'); if(ta&&!num(ta.value)&&r.amount){ ta.value=r.amount; got.push(fmtN(r.amount,r.currency||val('tx_cur')||'EUR')); }
+    const tc=document.getElementById('tx_cur'); if(tc&&r.currency) tc.value=r.currency;
+    const td=document.getElementById('tx_date'); const ty=document.getElementById('tx_year');
+    if(td&&r.date){ td.value=r.date; if(ty) ty.value=r.date.slice(0,4); got.push(fmtDate(r.date)); }
+    say('');
+    if(got.length) toast('Erkannt: '+got.join(' · ')+' — bitte kurz prüfen'); else toast('Kein verwertbarer Inhalt erkannt — Beleg möglichst gerade, hell und formatfüllend fotografieren','warn');
+  }catch(e){ say(''); toast(e.message||'Erkennung fehlgeschlagen','warn'); }
+}
+
+/* --- Schnellerfassung (z. B. Barzahlungen) --- */
+function parseQuickText(s){ s=String(s||'').trim();
+  const m=s.match(/(\d{1,3}(?:[.'\s]\d{3})+(?:[.,]\d{1,2})?|\d+(?:[.,]\d{1,2})?)\s*(€|eur|chf|fr\.?)?\s*$/i);
+  let amount=0,currency='',title=s;
+  if(m&&m[1]){ amount=normAmount(m[1]); if(m[2]) currency=/chf|fr/i.test(m[2])?'CHF':'EUR'; title=s.slice(0,m.index).replace(/[-–,:;]\s*$/,'').trim(); }
+  return { title:title||s, amount, currency };
+}
+function quickTaxdoc(){
+  const raw=val('qx_text');
+  if(!raw){ toast('Bitte eine Beschreibung eingeben — der Betrag darf direkt im Text stehen (z. B. „Parkgebühr 12,50")','warn'); return; }
+  const p=parseQuickText(raw);
+  const amount=num(val('qx_amount'))||p.amount;
+  const currency=p.currency||val('qx_cur')||'EUR';
+  const year=(state.taxYear&&state.taxYear!=='all')?+state.taxYear:+todayISO().slice(0,4);
+  const obj={ id:uid(), title:p.title, date:todayISO(), year, country:currency==='CHF'?'ch':'de', category:TAX_CATS[val('qx_cat')]?val('qx_cat'):'sonstiges', amount, currency, propertyId:(state.taxProp!=='all'&&state.taxProp!=='none')?state.taxProp:'', umlage:false, source:'bar / ohne Beleg (Schnellerfassung)', notes:'', attachments:[] };
+  db.taxdocs.push(obj); save(); render();
+  toast('Erfasst: '+obj.title+(amount?' · '+fmtN(amount,currency):'')+' ('+year+')');
+}
+
+/* --- Fahrtenbuch --- */
+function tripStats(list){ const s={count:0,km:0,by:{}}; list.forEach(t=>{ s.count++; s.km+=+t.km||0; const k=TRIP_PURPOSES[t.purpose]?t.purpose:'privat'; s.by[k]=s.by[k]||{count:0,km:0}; s.by[k].count++; s.by[k].km+=+t.km||0; }); return s; }
+function viewFahrten(){
+  const all=db.trips||[];
+  const cy=String(new Date().getFullYear());
+  const years=[...new Set(all.map(t=>(t.date||'').slice(0,4)).filter(Boolean))]; if(!years.includes(cy)) years.push(cy); years.sort().reverse();
+  if(!state.tripYear) state.tripYear=cy;
+  if(state.tripYear!=='all'&&!years.includes(state.tripYear)) state.tripYear=cy;
+  const y=state.tripYear;
+  const list=all.filter(t=>y==='all'||(t.date||'').slice(0,4)===y).sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+  const st=tripStats(list);
+  const yearSel=`<select class="inp" onchange="setTripYear(this.value)">${['all',...years].map(v=>`<option value="${v}" ${v===y?'selected':''}>${v==='all'?'Alle Jahre':v}</option>`).join('')}</select>`;
+  const rows=list.length?list.map(tripRow).join(''):`<tr><td colspan="5">${empty('doc','Noch keine Fahrten','Erfasse Familienheimfahrten, Arbeitswege, Dienstfahrten und Fahrten zu deinen Mietobjekten. Kilometer werden je Zweck und Jahr summiert — die Grundlage für die Steuererklärung. Tipp: Wiederkehrende Strecken über den Duplizieren-Knopf anlegen.','openTrip()','Fahrt erfassen')}</td></tr>`;
+  return `
+  <div class="page-head">
+    <div><h1>Fahrtenbuch</h1><div class="sub">${st.count} ${st.count===1?'Fahrt':'Fahrten'} · ${fmtKm(st.km)} km ${y==='all'?'gesamt':'in '+y}</div></div>
+    <button class="btn primary" onclick="openTrip()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>Fahrt</button>
+  </div>
+  <div style="display:flex;gap:8px;align-items:center;margin:-4px 0 14px">${yearSel}</div>
+  <div class="icard" style="margin-bottom:10px"><div class="icard-body">
+    ${Object.entries(TRIP_PURPOSES).map(([k,l])=>st.by[k]?`<div class="kv"><span class="k">${l}</span><span class="v">${st.by[k].count} ${st.by[k].count===1?'Fahrt':'Fahrten'} · <strong>${fmtKm(st.by[k].km)} km</strong></span></div>`:'').join('')||'<div class="kv"><span class="k">Noch keine Fahrten in diesem Zeitraum</span><span class="v">—</span></div>'}
+  </div></div>
+  <div class="panel"><div class="panel-body" style="padding:0"><table>${list.length?'<thead><tr><th class="hide-sm">Datum</th><th>Strecke</th><th>Zweck</th><th class="r">km</th><th></th></tr></thead>':''}<tbody>${rows}</tbody></table></div></div>`;
+}
+function tripRow(t){
+  const prop=t.propertyId?(db.properties||[]).find(x=>x.id===t.propertyId):null;
+  const sub=[t.vehicle,prop?prop.name:'',t.notes].filter(Boolean).map(esc).join(' · ');
+  return `<tr>
+    <td class="hide-sm num t-sub" style="white-space:nowrap">${t.date?new Date(t.date+'T00:00:00').toLocaleDateString('de-DE',{day:'2-digit',month:'short',year:'2-digit'}):'—'}</td>
+    <td><div class="t-name">${esc(t.from||'—')} → ${esc(t.to||'—')}</div>${sub?`<div class="t-sub">${sub}</div>`:''}</td>
+    <td><span class="tag">${TRIP_PURPOSES[t.purpose]||esc(t.purpose||'')}</span></td>
+    <td class="r num" style="font-weight:600;white-space:nowrap">${fmtKm(t.km)}</td>
+    <td class="r"><div class="row-actions">
+      <button class="icon-btn" onclick="dupTrip('${t.id}')" aria-label="Duplizieren" title="Fahrt duplizieren"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></button>
+      <button class="icon-btn" onclick="openTrip('${t.id}')" aria-label="Bearbeiten"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L18.5 9.5a2.1 2.1 0 0 0-3-3L5 17v3z"/><path d="M13.5 6.5l3 3"/></svg></button>
+      <button class="icon-btn del" onclick="delTrip('${t.id}')" aria-label="Löschen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13"/></svg></button>
+    </div></td>
+  </tr>`;
+}
+let _tripDraft=null;
+function dupTrip(id){ const s=(db.trips||[]).find(x=>x.id===id); if(!s) return; _tripDraft={date:todayISO(),from:s.from,to:s.to,km:s.km,purpose:s.purpose,vehicle:s.vehicle,propertyId:s.propertyId,notes:s.notes}; openTrip(); }
+function openTrip(id){
+  const d=id?(db.trips||[]).find(x=>x.id===id):(_tripDraft||{}); _tripDraft=null;
+  const places=[...new Set((db.trips||[]).flatMap(t=>[t.from,t.to]).filter(Boolean))].slice(0,30);
+  const vehs=[...new Set([...VEH_SUGGEST,...(db.trips||[]).map(t=>t.vehicle).filter(Boolean)])];
+  const propOpts=[['','— kein Objekt —']].concat((db.properties||[]).map(p=>[p.id,p.name]));
+  openModal(modalShell(id?'Fahrt bearbeiten':'Fahrt erfassen',`
+    <div class="fg-row">
+      ${field('tr_date','Datum',d.date||todayISO(),{type:'date'})}
+      ${field('tr_km','Gefahrene Kilometer',d.km||'',{type:'number',step:'0.1',ph:'z. B. 240'})}
+    </div>
+    <div class="fg-row">
+      ${field('tr_from','Von',d.from,{ph:'z. B. Chur',datalist:places})}
+      ${field('tr_to','Nach',d.to,{ph:'z. B. Schallstadt',datalist:places})}
+    </div>
+    <div class="fg-row">
+      ${field('tr_purpose','Zweck',d.purpose||'heimfahrt',{type:'select',options:Object.entries(TRIP_PURPOSES)})}
+      ${field('tr_vehicle','Fahrzeug',d.vehicle||'',{ph:'z. B. VW Polo (FR-M 7769)',datalist:vehs})}
+    </div>
+    ${field('tr_prop','Mietobjekt (bei Objekt-Fahrten)',d.propertyId||'',{type:'select',options:propOpts})}
+    ${field('tr_notes','Notiz',d.notes,{type:'textarea',ph:'Anlass, Besonderheiten …'})}
+  `,`saveTrip('${id||''}')`));
+}
+function saveTrip(id){
+  const obj={ date:val('tr_date')||todayISO(), km:num(val('tr_km')), from:val('tr_from'), to:val('tr_to'), purpose:TRIP_PURPOSES[val('tr_purpose')]?val('tr_purpose'):'privat', vehicle:val('tr_vehicle'), propertyId:val('tr_prop'), notes:val('tr_notes') };
+  if(!obj.km){ toast('Bitte die gefahrenen Kilometer angeben','warn'); return; }
+  if(id){ const t=db.trips.find(x=>x.id===id); if(t) Object.assign(t,obj); } else { obj.id=uid(); db.trips.push(obj); }
+  save(); closeModal(); render(); toast('Fahrt gespeichert');
+}
+function delTrip(id){ confirmDel('Fahrt löschen?','Der Eintrag wird dauerhaft entfernt.',()=>{ db.trips=db.trips.filter(x=>x.id!==id); save(); render(); toast('Fahrt gelöscht'); }); }
+
+/* --- Immobilien --- */
+function viewImmobilien(){
+  const props=db.properties||[];
+  const cy=String(new Date().getFullYear());
+  const y=(state.taxYear&&state.taxYear!=='all')?state.taxYear:cy;
+  const body=props.length?`<div class="cardgrid">${props.map(p=>propCard(p,y)).join('')}</div>`:empty('doc','Noch keine Immobilien angelegt','Lege deine Mietobjekte an. Danach kannst du jedem Objekt Belege und Ereignisse zuordnen (Handwerker, Grundsteuer, Versicherung, Mieteinnahmen …) — mit Kennzeichnung, was auf die Mieter umlegbar ist. Die Jahresübersicht liefert die Zahlen für Steuererklärung und Nebenkostenabrechnung.','openProperty()','Immobilie anlegen');
+  return `
+  <div class="page-head">
+    <div><h1>Immobilien</h1><div class="sub">${props.length} ${props.length===1?'Objekt':'Objekte'} · Kennzahlen für ${y}</div></div>
+    <button class="btn primary" onclick="openProperty()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>Immobilie</button>
+  </div>
+  ${body}`;
+}
+function propCard(p,y){
+  const docs=(db.taxdocs||[]).filter(x=>x.propertyId===p.id&&String(x.year)===String(y));
+  const exp=sumByCur(docs.filter(x=>x.category!=='einnahme'));
+  const uml=sumByCur(docs.filter(x=>x.umlage&&x.category!=='einnahme'));
+  const inc=sumByCur(docs.filter(x=>x.category==='einnahme'));
+  return `<div class="icard">
+    <div class="icard-top">
+      <div class="icard-ico" style="background:var(--surface-3);color:var(--ink-2)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="9" width="7" height="12"/><rect x="13.5" y="3" width="7" height="18"/><path d="M6.5 12.5h1M6.5 16h1M16.5 7h1M16.5 11h1M16.5 15h1"/></svg></div>
+      <div class="ti"><div class="typ">${esc(p.name||'—')}</div><div class="pv">${esc(p.address||'')}</div></div>
+    </div>
+    <div class="icard-body">
+      <div class="kv"><span class="k">Belege ${y}</span><span class="v">${docs.length}</span></div>
+      <div class="kv"><span class="k">Kosten ${y}</span><span class="v" style="font-weight:600">${fmtSums(exp)}</span></div>
+      <div class="kv"><span class="k">davon umlagefähig</span><span class="v">${fmtSums(uml)}</span></div>
+      <div class="kv"><span class="k">Einnahmen ${y}</span><span class="v">${fmtSums(inc)}</span></div>
+      ${p.notes?`<div class="icard-note">${esc(p.notes)}</div>`:''}
+    </div>
+    <div class="icard-foot">
+      <button class="btn ghost sm" onclick="openTaxdoc('','${p.id}')">+ Beleg</button>
+      <button class="btn ghost sm" onclick="state.taxProp='${p.id}';go('steuer')">Belege anzeigen</button>
+      <button class="icon-btn" onclick="openProperty('${p.id}')" aria-label="Bearbeiten"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L18.5 9.5a2.1 2.1 0 0 0-3-3L5 17v3z"/><path d="M13.5 6.5l3 3"/></svg></button>
+      <button class="icon-btn del" onclick="delProperty('${p.id}')" aria-label="Löschen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13"/></svg></button>
+    </div>
+  </div>`;
+}
+function openProperty(id){
+  const d=id?(db.properties||[]).find(x=>x.id===id):{};
+  openModal(modalShell(id?'Immobilie bearbeiten':'Immobilie anlegen',`
+    ${field('pr_name','Bezeichnung',d.name,{ph:'z. B. Miethaus Musterstraße 12'})}
+    ${field('pr_address','Adresse',d.address,{ph:'Straße, PLZ Ort'})}
+    ${field('pr_notes','Notiz',d.notes,{type:'textarea',ph:'Mieter, Baujahr, Besonderheiten …'})}
+  `,`saveProperty('${id||''}')`));
+}
+function saveProperty(id){
+  const obj={ name:val('pr_name'), address:val('pr_address'), notes:val('pr_notes') };
+  if(!obj.name){ toast('Bitte eine Bezeichnung angeben','warn'); return; }
+  if(id){ const p=db.properties.find(x=>x.id===id); if(p) Object.assign(p,obj); } else { obj.id=uid(); db.properties.push(obj); }
+  save(); closeModal(); render(); toast('Immobilie gespeichert');
+}
+function delProperty(id){ confirmDel('Immobilie löschen?','Das Objekt wird entfernt. Bereits erfasste Belege bleiben erhalten und erscheinen dann unter „Allgemein".',()=>{ db.properties=db.properties.filter(x=>x.id!==id); if(state.taxProp===id) state.taxProp='all'; save(); render(); toast('Immobilie gelöscht'); }); }
+
 /* ===================== KÜNDIGUNGSSCHREIBEN ===================== */
 /* Unterschrift (PDF/Bild) wird zugeschnitten und lokal gespeichert; PDF via jsPDF (CDN). */
 function autoTrimCanvas(cv){
@@ -2192,7 +2581,7 @@ function confirmDel(title,text,onYes){
 function runConfirm(){ const f=_pendingConfirm; _pendingConfirm=null; closeModal(); if(typeof f==='function'){ try{ f(); }catch(e){ console.warn('Aktion fehlgeschlagen:',e); } } }
 
 /* ---------- Quick add ---------- */
-function quickAdd(){ ({dashboard:openAccount,konten:openAccount,versicherungen:openInsurance,vertraege:openContract,ausgaben:openExpense,dokumente:openDocument}[state.view]||openAccount)(); }
+function quickAdd(){ ({dashboard:openAccount,konten:openAccount,versicherungen:openInsurance,vertraege:openContract,ausgaben:openExpense,dokumente:openDocument,steuer:openTaxdoc,fahrten:openTrip,immobilien:openProperty}[state.view]||openAccount)(); }
 
 /* ===================== IMPORT/EXPORT ===================== */
 function exportData(){
@@ -2212,8 +2601,11 @@ function importBundle(obj){
   const n=v=>v==null?'':(''+v).trim();
   const cur=v=>v==='CHF'?'CHF':'EUR'; const ctry=v=>v==='ch'?'ch':'de';
   const nm=v=>(v===''||v==null)?'':(+v||0);
-  const c={insurances:0,contracts:0,expenses:0,tasks:0,documents:0};
+  const c={insurances:0,contracts:0,expenses:0,tasks:0,documents:0,properties:0,trips:0,taxdocs:0};
   if(!Array.isArray(db.documents)) db.documents=[];
+  if(!Array.isArray(db.properties)) db.properties=[];
+  if(!Array.isArray(db.trips)) db.trips=[];
+  if(!Array.isArray(db.taxdocs)) db.taxdocs=[];
   (obj.insurances||[]).forEach(s=>{
     if(!n(s.provider)) return;
     const o={ type:INS_TYPES[s.type]?s.type:'sonstiges', provider:n(s.provider), country:ctry(s.country), currency:cur(s.currency), group:n(s.group), policyNo:n(s.policyNo), active:s.active!==false, premium:+s.premium||0, interval:INTERVALS[s.interval]?s.interval:'jaehrlich', mainDue:n(s.mainDue), noticeMonths:nm(s.noticeMonths), coverage:n(s.coverage), bonus:n(s.bonus), conditions:n(s.conditions), deadlines:Array.isArray(s.deadlines)?s.deadlines.filter(d=>d&&d.date).map(d=>({label:n(d.label),date:d.date})):[] };
@@ -2244,6 +2636,25 @@ function importBundle(obj){
     if(db.documents.some(y=>(y.label||'')===o.label&&(y.value||'')===o.value)) return;
     o.id=uid(); db.documents.push(o); c.documents++;
   });
+  (obj.properties||[]).forEach(p=>{
+    if(!n(p.name)) return;
+    const o={ name:n(p.name), address:n(p.address), notes:n(p.notes) };
+    if(db.properties.some(x=>(x.name||'')===o.name&&(x.address||'')===o.address)) return;
+    o.id=uid(); db.properties.push(o); c.properties++;
+  });
+  const resolveProp=x=>{ const pid=n(x.propertyId); if(pid&&db.properties.some(p=>p.id===pid)) return pid; const pn=n(x.property); if(pn){ const p=db.properties.find(q=>(q.name||'')===pn); if(p) return p.id; } return ''; };
+  (obj.trips||[]).forEach(t=>{
+    if(!(+t.km)) return;
+    const o={ date:n(t.date)||todayISO(), km:+t.km||0, from:n(t.from), to:n(t.to), purpose:TRIP_PURPOSES[t.purpose]?t.purpose:'privat', vehicle:n(t.vehicle), propertyId:resolveProp(t), notes:n(t.notes) };
+    if(db.trips.some(x=>(x.date||'')===o.date&&(x.from||'')===o.from&&(x.to||'')===o.to&&+x.km===o.km&&(x.purpose||'')===o.purpose)) return;
+    o.id=uid(); db.trips.push(o); c.trips++;
+  });
+  (obj.taxdocs||[]).forEach(x=>{
+    if(!n(x.title)) return;
+    const o={ title:n(x.title), date:n(x.date)||todayISO(), year:+x.year||+((n(x.date)||todayISO()).slice(0,4)), country:(x.country==='ch'||x.country==='de')?x.country:'', category:TAX_CATS[x.category]?x.category:'sonstiges', amount:+x.amount||0, currency:cur(x.currency), propertyId:resolveProp(x), umlage:!!x.umlage, source:n(x.source), notes:n(x.notes), attachments:[] };
+    if(db.taxdocs.some(y=>(y.title||'')===o.title&&(y.date||'')===o.date&&+(y.amount||0)===o.amount)) return;
+    o.id=uid(); db.taxdocs.push(o); c.taxdocs++;
+  });
   migrate(db); save(); render(); return c;
 }
 function onBundleFile(input){
@@ -2253,7 +2664,7 @@ function onBundleFile(input){
     try{
       const obj=JSON.parse(r.result);
       const c=importBundle(obj);
-      const parts=[]; if(c.insurances)parts.push(c.insurances+'× Versicherungen'); if(c.contracts)parts.push(c.contracts+'× Verträge'); if(c.expenses)parts.push(c.expenses+'× Ausgaben'); if(c.tasks)parts.push(c.tasks+'× Aufgaben'); if(c.documents)parts.push(c.documents+'× Dokumente');
+      const parts=[]; if(c.insurances)parts.push(c.insurances+'× Versicherungen'); if(c.contracts)parts.push(c.contracts+'× Verträge'); if(c.expenses)parts.push(c.expenses+'× Ausgaben'); if(c.tasks)parts.push(c.tasks+'× Aufgaben'); if(c.documents)parts.push(c.documents+'× Dokumente'); if(c.properties)parts.push(c.properties+'× Immobilien'); if(c.trips)parts.push(c.trips+'× Fahrten'); if(c.taxdocs)parts.push(c.taxdocs+'× Steuerbelege');
       toast(parts.length?('Hinzugefügt: '+parts.join(', ')):'Nichts Neues — Einträge sind bereits vorhanden');
     }catch(e){ toast((e&&e.msg)||'Datei konnte nicht gelesen werden','warn'); }
     finally{ input.value=''; }
